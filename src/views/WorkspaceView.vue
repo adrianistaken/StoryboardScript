@@ -1,0 +1,409 @@
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import draggable from 'vuedraggable'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Clock3,
+  Download,
+  FileText,
+  HardDrive,
+  Plus,
+  Archive,
+  RotateCw,
+} from '@lucide/vue'
+import StoryboardColumn from '../components/StoryboardColumn.vue'
+import Modal from '../components/Modal.vue'
+import { useProject } from '../composables/useProject'
+import {
+  cloneDocument,
+  download,
+  errorMessage,
+  limits,
+  moveSection,
+  narrationTime,
+  safeFilename,
+  wordCount,
+} from '../utils'
+import type { Section } from '../types'
+import { validateImage } from '../services/media'
+
+const route = useRoute()
+const { doc, sections, status, error: saveError, load, changed, flush } = useProject()
+const loading = ref(true),
+  error = ref(''),
+  busy = ref(''),
+  notice = ref('')
+const scroll = ref<HTMLDivElement>(),
+  scrollPosition = ref(0),
+  scrollMax = ref(0),
+  exportMenu = ref<HTMLDetailsElement>()
+const deleteId = ref('')
+const deletedSection = computed(() => sections.value.find((s) => s.id === deleteId.value))
+const totalWords = computed(() => sections.value.reduce((n, s) => n + wordCount(s.text), 0))
+let resizeObserver: ResizeObserver | undefined
+function syncScroll() {
+  if (scroll.value) {
+    scrollPosition.value = scroll.value.scrollLeft
+    scrollMax.value = Math.max(0, scroll.value.scrollWidth - scroll.value.clientWidth)
+  }
+}
+onMounted(async () => {
+  try {
+    await load(String(route.params.id))
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    loading.value = false
+  }
+  await nextTick()
+  syncScroll()
+  resizeObserver = new ResizeObserver(syncScroll)
+  if (scroll.value) resizeObserver.observe(scroll.value)
+})
+onBeforeUnmount(() => resizeObserver?.disconnect())
+function navigate(offset: number) {
+  scroll.value?.scrollBy({
+    left: offset * ((scroll.value.querySelector('.script-column')?.clientWidth ?? 330) + 18),
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+  })
+}
+function scrub(event: Event) {
+  if (scroll.value) scroll.value.scrollLeft = Number((event.target as HTMLInputElement).value)
+}
+function edit(id: string, field: 'title' | 'text', value: string) {
+  const section = doc.value?.sections.find((s) => s.id === id)
+  if (!section || !doc.value) return
+  if (
+    field === 'text' &&
+    doc.value.sections.reduce((n, s) => n + (s.id === id ? value.length : s.text.length), 0) >
+      limits.textChars
+  ) {
+    error.value = 'This project has reached its text limit. Create another project to continue.'
+    return
+  }
+  section[field] = value
+  changed()
+}
+function reorder(next: Section[]) {
+  if (doc.value) {
+    doc.value.project.sectionOrder = next.map((s) => s.id)
+    changed()
+  }
+}
+const moveAnimations = new WeakMap<HTMLElement, Animation>()
+async function move(id: string, offset: number) {
+  if (doc.value) {
+    const columns = Array.from(scroll.value?.querySelectorAll<HTMLElement>('.script-column') ?? [])
+    const positions = new Map(
+      columns.map((column) => [column, column.getBoundingClientRect().left]),
+    )
+    columns.forEach((column) => moveAnimations.get(column)?.cancel())
+    doc.value.project.sectionOrder = moveSection(doc.value.project.sectionOrder, id, offset)
+    changed()
+    notice.value = 'Section moved.'
+    await nextTick()
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    for (const column of columns) {
+      const distance = positions.get(column)! - column.getBoundingClientRect().left
+      if (Math.abs(distance) < 1) continue
+      moveAnimations.set(
+        column,
+        column.animate(
+          [{ transform: `translateX(${distance}px)` }, { transform: 'translateX(0)' }],
+          { duration: 150, easing: 'ease' },
+        ),
+      )
+    }
+  }
+}
+async function addSection() {
+  if (!doc.value) return
+  if (sections.value.length >= limits.sections) {
+    error.value = 'A project can contain up to 500 sections.'
+    return
+  }
+  const id = crypto.randomUUID()
+  doc.value.sections.push({
+    id,
+    projectId: doc.value.project.id,
+    title: 'Untitled section',
+    text: '',
+    imageIds: [],
+  })
+  doc.value.project.sectionOrder.push(id)
+  changed()
+  await nextTick()
+  syncScroll()
+  scroll.value
+    ?.querySelector<HTMLTextAreaElement>(`[data-section-id="${id}"] .section-title`)
+    ?.focus()
+}
+function deleteSection() {
+  if (!doc.value || !deleteId.value) return
+  doc.value.sections = doc.value.sections.filter((s) => s.id !== deleteId.value)
+  doc.value.project.sectionOrder = doc.value.project.sectionOrder.filter(
+    (id) => id !== deleteId.value,
+  )
+  doc.value.images = doc.value.images.filter((i) => i.sectionId !== deleteId.value)
+  deleteId.value = ''
+  changed()
+  void nextTick(syncScroll)
+}
+function requestDelete(id: string) {
+  if (sections.value.length <= 1)
+    error.value =
+      'Keep at least one section in your script. You can clear its text or delete the project from Your scripts.'
+  else deleteId.value = id
+}
+function setWpm(event: Event, finalize = false) {
+  if (!doc.value) return
+  const input = event.target as HTMLInputElement
+  const value = Number(input.value)
+  if (!finalize && (!input.value || !Number.isFinite(value) || value < 100 || value > 220)) return
+  doc.value.project.narrationWpm = Number.isFinite(value)
+    ? Math.max(100, Math.min(220, Math.round(value)))
+    : 150
+  input.value = String(doc.value.project.narrationWpm)
+  changed()
+}
+async function addImages(id: string, files: File[]) {
+  if (!doc.value || busy.value) return
+  const section = doc.value.sections.find((s) => s.id === id)
+  if (!section) return
+  error.value = ''
+  busy.value = 'Adding images…'
+  try {
+    if (files.length + doc.value.images.length > limits.images)
+      throw new Error('This project has reached its image limit. Remove some images first.')
+    if (
+      files.reduce((n, f) => n + f.size, 0) +
+        doc.value.images.reduce((n, i) => n + i.blob.size, 0) >
+      limits.expandedBytes - limits.manifestBytes
+    )
+      throw new Error(
+        'These images would make the project too large to back up. Add smaller images or remove unused references.',
+      )
+    const additions = []
+    for (const file of files) {
+      const mimeType = await validateImage(file)
+      additions.push({
+        id: crypto.randomUUID(),
+        projectId: doc.value.project.id,
+        sectionId: id,
+        filename: file.name.slice(0, 1000),
+        mimeType,
+        blob: new Blob([file], { type: mimeType }),
+      })
+    }
+    doc.value.images.push(...additions)
+    section.imageIds.push(...additions.map((i) => i.id))
+    changed()
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = ''
+  }
+}
+function removeImage(id: string) {
+  if (!doc.value) return
+  doc.value.images = doc.value.images.filter((i) => i.id !== id)
+  doc.value.sections.forEach((s) => {
+    s.imageIds = s.imageIds.filter((imageId) => imageId !== id)
+  })
+  changed()
+}
+async function exportProject(kind: 'pdf' | 'backup') {
+  if (!doc.value || busy.value) return
+  if (exportMenu.value) exportMenu.value.open = false
+  busy.value = kind === 'pdf' ? 'Creating script PDF…' : 'Creating project backup…'
+  error.value = ''
+  notice.value = ''
+  try {
+    // Export the current draft even when local storage is unavailable; a backup is the recovery path.
+    await flush().catch(() => {})
+    const snapshot = cloneDocument(doc.value)
+    const blob =
+      kind === 'pdf'
+        ? await (await import('../services/pdf/export')).exportPdf(snapshot)
+        : await (await import('../services/backup')).exportBackup(snapshot)
+    download(
+      blob,
+      `${safeFilename(snapshot.project.title)}${kind === 'pdf' ? '.pdf' : '.storyboard.zip'}`,
+    )
+    notice.value = kind === 'pdf' ? 'Script PDF exported.' : 'Project backup exported.'
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = ''
+  }
+}
+</script>
+<template>
+  <div v-if="loading" class="loading-page" role="status">Opening your storyboard…</div>
+  <main v-else-if="!doc" id="main" class="not-found">
+    <h1>{{ error ? 'Unable to open this project' : 'This project isn’t in this browser.' }}</h1>
+    <p>
+      {{
+        error ||
+        'Projects are saved on the device and browser where you created them. You can restore a backup from Your scripts.'
+      }}
+    </p>
+    <RouterLink class="button primary" to="/">Back to your scripts</RouterLink>
+  </main>
+  <div v-else class="workspace">
+    <header class="workspace-header">
+      <RouterLink to="/" class="back-projects" aria-label="Back to your scripts"
+        ><ArrowLeft :size="20"
+      /></RouterLink>
+      <div class="workspace-title">
+        <input
+          v-model="doc.project.title"
+          aria-label="Project title"
+          maxlength="1000"
+          @input="changed"
+          @blur="!doc.project.title.trim() && ((doc.project.title = 'Untitled script'), changed())"
+        /><span><FileText :size="12" /> {{ doc.project.sourceFilename || 'Your script' }}</span>
+      </div>
+      <div class="workspace-stats">
+        <div class="totals">
+          <span
+            ><strong>{{ sections.length }}</strong> sections</span
+          ><span
+            ><strong>{{ totalWords.toLocaleString() }}</strong> words</span
+          ><span class="total-time"
+            ><Clock3 :size="15" /><strong>{{
+              narrationTime(totalWords, doc.project.narrationWpm)
+            }}</strong>
+            estimated narration</span
+          >
+        </div>
+        <label class="wpm-control"
+          ><span>Reading pace</span
+          ><input
+            :value="doc.project.narrationWpm"
+            type="number"
+            min="100"
+            max="220"
+            step="5"
+            aria-label="Words per minute"
+            @input="setWpm($event)"
+            @change="setWpm($event, true)"
+            @blur="setWpm($event, true)"
+          /><span>WPM</span></label
+        >
+      </div>
+      <span class="save-status" :class="status" role="status"
+        ><Check v-if="status === 'saved'" :size="14" /><span v-else class="status-dot" />{{
+          status === 'saved' ? 'Saved locally' : status === 'saving' ? 'Saving…' : 'Not saved'
+        }}</span
+      >
+      <details ref="exportMenu" class="export-menu">
+        <summary class="button secondary" :aria-disabled="!!busy">
+          <Download :size="16" /> Export <ChevronDown :size="14" />
+        </summary>
+        <div class="export-options">
+          <button :disabled="!!busy" @click="exportProject('pdf')">
+            <FileText :size="18" /><span
+              >Script PDF<small>Headings and narration, in order</small></span
+            ></button
+          ><button :disabled="!!busy" @click="exportProject('backup')">
+            <Archive :size="18" /><span
+              >Project backup<small>Script, settings, and images</small></span
+            >
+          </button>
+        </div>
+      </details>
+    </header>
+    <div v-if="saveError || error" class="error-banner" role="alert">
+      <span>{{ error || saveError }}</span
+      ><button v-if="saveError" class="text-button" @click="flush().catch(() => {})">
+        <RotateCw :size="15" /> Retry save</button
+      ><button v-if="error" class="text-button" @click="error = ''">Dismiss</button>
+    </div>
+    <main
+      id="main"
+      ref="scroll"
+      class="board-scroll"
+      aria-label="Script storyboard"
+      @scroll="syncScroll"
+    >
+      <draggable
+        :model-value="sections"
+        item-key="id"
+        class="board-track"
+        handle=".drag-handle"
+        :animation="150"
+        direction="horizontal"
+        ghost-class="column-ghost"
+        :scroll-sensitivity="90"
+        :scroll-speed="14"
+        @update:model-value="reorder"
+      >
+        <template #item="{ element, index }"
+          ><StoryboardColumn
+            :section="element"
+            :index="index"
+            :count="sections.length"
+            :wpm="doc.project.narrationWpm"
+            :images="doc.images.filter((i) => element.imageIds.includes(i.id))"
+            @edit="edit"
+            @move="move"
+            @add-images="addImages"
+            @remove-image="removeImage"
+            @remove-section="requestDelete"
+        /></template>
+        <template #footer
+          ><button class="add-section" @click="addSection">
+            <span class="add-section-icon"><Plus :size="25" :stroke-width="1.3" /></span
+            ><strong>Add a section</strong><span>A new beat in your story</span>
+          </button></template
+        >
+      </draggable>
+    </main>
+    <footer class="board-navigation">
+      <span class="board-hint"
+        ><HardDrive :size="13" />{{ busy || notice || 'Your script stays in this browser.' }}</span
+      >
+      <div class="board-scroll-controls">
+        <button
+          class="icon-button"
+          aria-label="Scroll to earlier sections"
+          :disabled="scrollPosition < 1"
+          @click="navigate(-1)"
+        >
+          <ArrowLeft :size="18" /></button
+        ><input
+          type="range"
+          min="0"
+          :max="scrollMax"
+          :value="scrollPosition"
+          :disabled="!scrollMax"
+          aria-label="Scroll through sections"
+          @input="scrub"
+        /><button
+          class="icon-button"
+          aria-label="Scroll to later sections"
+          :disabled="scrollPosition >= scrollMax - 1"
+          @click="navigate(1)"
+        >
+          <ArrowRight :size="18" />
+        </button>
+      </div>
+      <span class="pace-note">Timing excludes pauses &amp; editing.</span>
+    </footer>
+    <span class="visually-hidden" role="status">{{ notice || busy }}</span>
+    <Modal :open="!!deleteId" title="Delete this section?" @close="deleteId = ''"
+      ><p>
+        “{{ deletedSection?.title }}” and its reference images will be removed from this script.
+      </p>
+      <div class="dialog-actions">
+        <button class="button secondary" @click="deleteId = ''">Keep section</button
+        ><button class="button danger" @click="deleteSection">Delete section</button>
+      </div></Modal
+    >
+  </div>
+</template>
