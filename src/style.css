@@ -1685,34 +1685,50 @@ input[type='range'] {
   text-overflow: ellipsis;
 }
 .account-field {
-  margin-top: 20px;
+  margin-top: 0;
+}
+.google-sign-in {
+  width: 100%;
+  justify-content: center;
+  margin-top: 16px;
+}
+.google-mark {
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1;
+  color: #4285f4;
+}
+.account-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-divider::before,
+.account-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--rule);
 }
 .account-menu .account-note {
   margin-top: 20px;
   font-size: 13px;
 }
-.library-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 20px;
-}
-.library-tabs button {
-  border: 1px solid var(--rule);
-  border-radius: 5px;
-  padding: 7px 12px;
-  font-size: 14px;
-}
-.library-tabs button[aria-pressed='true'] {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
-}
-.library-tabs span {
+.library-description {
   color: var(--muted);
   font-size: 13px;
-  margin-left: 5px;
+  margin: 12px 0 4px;
+}
+.device-projects {
+  margin-top: 36px;
+}
+.copy-account {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 @media (max-width: 700px) {
   .home-header {

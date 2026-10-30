@@ -34,6 +34,17 @@ export async function sendSignIn(email: string) {
   })
   if (error) throw error
 }
+export async function signInWithGoogle() {
+  if (!supabase) throw new Error('Accounts are not configured for this site.')
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${location.origin}/`,
+      queryParams: { prompt: 'select_account' },
+    },
+  })
+  if (error) throw error
+}
 export async function signOut() {
   if (!supabase) return
   const { error } = await supabase.auth.signOut({ scope: 'local' })

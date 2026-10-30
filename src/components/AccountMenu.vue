@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { Cloud, LogOut } from '@lucide/vue'
 import Modal from './Modal.vue'
-import { accountsEnabled, accountUser, sendSignIn, signOut } from '../services/auth'
+import { accountsEnabled, accountUser, sendSignIn, signInWithGoogle, signOut } from '../services/auth'
 import { errorMessage } from '../utils'
 const open = ref(false),
   email = ref(''),
@@ -21,6 +21,17 @@ async function submit() {
   try {
     await sendSignIn(email.value.trim())
     sent.value = true
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = false
+  }
+}
+async function continueWithGoogle() {
+  busy.value = true
+  error.value = ''
+  try {
+    await signInWithGoogle()
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -48,14 +59,23 @@ async function leave() {
       </button>
     </template>
     <button v-else class="button secondary" @click="open = true">
-      <Cloud :size="16" /> Sign in to sync
+      <Cloud :size="16" /> Sign in
     </button>
     <span v-if="error && !open" role="alert">{{ error }}</span>
     <Modal :open="open" title="Your scripts, on any device" @close="open = false">
       <p>
-        Sign in or create an account with an email link. Scripts in your account include your
+        Sign in with Google or an email link. Scripts in your account include your
         writing, reference images, and reading pace.
       </p>
+      <button
+        class="button secondary google-sign-in"
+        type="button"
+        :disabled="busy"
+        @click="continueWithGoogle">
+        <span class="google-mark" aria-hidden="true">G</span>
+        Continue with Google
+      </button>
+      <div class="account-divider"><span>or use email</span></div>
       <p v-if="sent" class="notice" role="status">
         Check your email for a sign-in link. Open it to continue.
       </p>
@@ -77,7 +97,7 @@ async function leave() {
         </div>
       </form>
       <p class="account-note">
-        Your browser-only scripts stay here until you choose to copy them to your account.
+        Scripts already saved on this device join your account after you sign in.
       </p>
     </Modal>
   </div>

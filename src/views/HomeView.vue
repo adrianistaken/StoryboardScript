@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import {
   ArrowRight,
   FileText,
@@ -24,15 +24,17 @@ import { createDocument, errorMessage, narrationTime, wordCount } from '../utils
 import { createExample } from '../example'
 
 const router = useRouter()
-const route = useRoute()
-const library = ref<'local' | 'account'>(route.query.storage === 'local' ? 'local' : accountUser.value ? 'account' : 'local')
 const cloud = computed(() => accountUser.value ? cloudRepository(accountUser.value.id) : undefined)
-const store = computed(() => library.value === 'account' && cloud.value ? cloud.value : projects)
-const projectUrl = (id: string, source = library.value) =>
+const destination = computed(() => cloud.value ?? projects)
+const destinationSource = computed(() => cloud.value ? 'account' : 'local')
+const projectUrl = (id: string, source: 'local' | 'account' = destinationSource.value) =>
   `/project/${id}${source === 'account' ? '?storage=account' : ''}`
 let refreshVersion = 0
+const attemptedAutoMove = new Set<string>()
 const saved = ref<Project[]>([]),
+  localSaved = ref<Project[]>([]),
   loading = ref(true),
+  moving = ref(false),
   busy = ref(''),
   error = ref('')
 const draft = ref<ImportDraft>(),
@@ -41,30 +43,80 @@ const draft = ref<ImportDraft>(),
 const dragging = ref(false),
   progress = ref(0)
 const target = ref<Project>(),
+  targetSource = ref<'local' | 'account'>('local'),
   action = ref<'rename' | 'delete'>('rename'),
   renameTitle = ref('')
 async function refresh() {
   const version = ++refreshVersion
   loading.value = true
   saved.value = []
+  localSaved.value = []
   try {
-    const result = await store.value.list()
-    if (version === refreshVersion) saved.value = result
+    const local = await projects.list()
+    if (version !== refreshVersion) return
+    if (cloud.value) {
+      localSaved.value = local
+      saved.value = await cloud.value.list()
+      const owner = accountUser.value?.id
+      if (owner && local.length && !attemptedAutoMove.has(owner) && !moving.value) {
+        attemptedAutoMove.add(owner)
+        void moveDeviceScripts(local)
+      }
+    } else saved.value = local
   } catch (e) {
     if (version === refreshVersion) error.value = errorMessage(e)
   } finally {
     if (version === refreshVersion) loading.value = false
   }
 }
-watch(() => accountUser.value?.id, (id) => {
-  library.value = id ? 'account' : 'local'
+function sameDocument(a: Awaited<ReturnType<typeof projects.load>>, b: Awaited<ReturnType<typeof projects.load>>) {
+  if (!a || !b) return false
+  return JSON.stringify(a.project) === JSON.stringify(b.project)
+    && JSON.stringify(a.sections) === JSON.stringify(b.sections)
+    && JSON.stringify(a.images.map(({ blob, ...image }) => ({ ...image, size: blob.size })))
+      === JSON.stringify(b.images.map(({ blob, ...image }) => ({ ...image, size: blob.size })))
+}
+async function transfer(project: Project) {
+  const destination = cloud.value
+  if (!destination) throw new Error('Sign in again to move this script.')
+  const doc = await projects.load(project.id)
+  if (!doc) return
+  const existing = await destination.load(project.id)
+  if (existing && !sameDocument(doc, existing)) {
+    throw new Error(`“${project.title}” already exists in your account with different edits. Move it manually to keep both versions.`)
+  }
+  if (!existing) await destination.save(doc)
+  const verified = await destination.load(project.id)
+  if (!sameDocument(doc, verified)) throw new Error(`Could not verify “${project.title}” in your account.`)
+  const latest = await projects.load(project.id)
+  if (!sameDocument(doc, latest)) throw new Error(`“${project.title}” changed during sync. It remains on this device; retry to upload the latest edits.`)
+  await projects.delete(project.id)
+}
+async function moveDeviceScripts(items: Project[]) {
+  if (moving.value || !cloud.value) return
+  moving.value = true
+  busy.value = 'Adding device scripts to your account…'
+  const failures: string[] = []
+  try {
+    for (const item of items) {
+      try { await transfer(item) } catch (e) { failures.push(errorMessage(e)) }
+    }
+    if (failures.length) error.value = `Some scripts stayed on this device. ${failures[0]}`
+    else error.value = ''
+  } finally {
+    moving.value = false
+    busy.value = ''
+    await refresh()
+  }
+}
+watch(() => accountUser.value?.id, () => {
   target.value = undefined
   error.value = ''
 })
-watch([library, () => accountUser.value?.id], refresh, { immediate: true })
-async function copyToAccount(project: Project) {
+watch(() => accountUser.value?.id, refresh, { immediate: true })
+async function moveToAccount(project: Project) {
   if (!cloud.value || busy.value) return
-  busy.value = 'Copying script to your account…'
+  busy.value = 'Moving script to your account…'
   error.value = ''
   const destination = cloud.value
   try {
@@ -73,7 +125,11 @@ async function copyToAccount(project: Project) {
     const { exportBackup, importBackup } = await import('../services/backup')
     const copy = await importBackup(await exportBackup(doc))
     await destination.save(copy)
-    library.value = 'account'
+    if (!await destination.load(copy.project.id)) throw new Error('The account copy could not be verified.')
+    const latest = await projects.load(project.id)
+    if (!sameDocument(doc, latest)) throw new Error('This script changed during transfer. It remains on this device.')
+    await projects.delete(project.id)
+    await refresh()
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -108,12 +164,12 @@ function dropped(event: DragEvent) {
 }
 async function confirmImport(value: ImportDraft) {
   if (busy.value) return
-  const destination = store.value, source = library.value
+  const store = destination.value, source = destinationSource.value
   busy.value = 'Saving project…'
   error.value = ''
   try {
     const doc = createDocument(value)
-    await destination.save(doc)
+    await store.save(doc)
     draft.value = undefined
     await router.push(projectUrl(doc.project.id, source))
   } catch (e) {
@@ -124,7 +180,7 @@ async function confirmImport(value: ImportDraft) {
 }
 async function restore(event: Event) {
   if (busy.value) return
-  const destination = store.value, source = library.value
+  const store = destination.value, source = destinationSource.value
   const el = event.target as HTMLInputElement,
     file = el.files?.[0]
   el.value = ''
@@ -134,7 +190,7 @@ async function restore(event: Event) {
   try {
     const { importBackup } = await import('../services/backup')
     const doc = await importBackup(file)
-    await destination.save(doc)
+    await store.save(doc)
     await router.push(projectUrl(doc.project.id, source))
   } catch (e) {
     error.value = errorMessage(e)
@@ -144,12 +200,12 @@ async function restore(event: Event) {
 }
 async function example() {
   if (busy.value) return
-  const destination = store.value, source = library.value
+  const store = destination.value, source = destinationSource.value
   busy.value = 'Opening example…'
   error.value = ''
   try {
     const doc = createExample()
-    await destination.save(doc)
+    await store.save(doc)
     await router.push(projectUrl(doc.project.id, source))
   } catch (e) {
     error.value = errorMessage(e)
@@ -157,8 +213,9 @@ async function example() {
     busy.value = ''
   }
 }
-function manage(project: Project, mode: 'rename' | 'delete') {
+function manage(project: Project, mode: 'rename' | 'delete', source: 'local' | 'account') {
   target.value = project
+  targetSource.value = source
   action.value = mode
   renameTitle.value = project.title
 }
@@ -166,8 +223,10 @@ async function completeAction() {
   if (!target.value || busy.value) return
   busy.value = 'Updating script…'
   try {
-    if (action.value === 'delete') await store.value.delete(target.value.id)
-    else await store.value.rename(target.value.id, renameTitle.value)
+    const store = targetSource.value === 'account' ? cloud.value : projects
+    if (!store) throw new Error('Sign in again to update this script.')
+    if (action.value === 'delete') await store.delete(target.value.id)
+    else await store.rename(target.value.id, renameTitle.value)
     target.value = undefined
     await refresh()
   } catch (e) {
@@ -282,11 +341,6 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
         </button>
       </section>
       <section class="saved-projects" aria-labelledby="saved-title">
-        <div v-if="accountUser" class="library-tabs" role="group" aria-label="Script storage">
-          <button :aria-pressed="library === 'account'" :disabled="!!busy" @click="library = 'account'">Your account</button>
-          <button :aria-pressed="library === 'local'" :disabled="!!busy" @click="library = 'local'">This browser</button>
-          <span>{{ library === 'account' ? 'New scripts save to your account.' : 'New scripts stay on this device.' }}</span>
-        </div>
         <div class="section-header">
           <h2 id="saved-title">
             Your scripts <span v-if="saved.length" class="count-badge">{{ saved.length }}</span>
@@ -295,11 +349,12 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
             <ArchiveRestore :size="17" /> Import backup
           </button>
         </div>
+        <p class="library-description">{{ accountUser ? 'Saved to your account and available on your devices.' : 'Saved in this browser. Sign in to bring your scripts to your account.' }}</p>
         <p v-if="loading" class="empty-projects">Loading your scripts…</p>
         <div v-else-if="!saved.length" class="empty-projects">
           <FolderOpen :size="28" :stroke-width="1.3" />
-          <p>Your stories will live here.</p>
-          <small>Import a script to start shaping it.</small>
+          <p>{{ accountUser ? 'No scripts in your account yet.' : 'Your stories will live here.' }}</p>
+          <small>{{ accountUser && localSaved.length ? 'Move a script from this device below, or import a new one.' : 'Import a script to start shaping it.' }}</small>
         </div>
         <div v-else class="project-list">
           <div v-for="project in saved" :key="project.id" class="project-row">
@@ -313,25 +368,17 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
               ></RouterLink
             >
             <button
-              v-if="accountUser && library === 'local'"
-              class="icon-button"
-              :aria-label="`Copy ${project.title} to account`"
-              title="Copy to your account"
-              :disabled="!!busy"
-              @click="copyToAccount(project)"
-            ><CloudUpload :size="18" /></button>
-            <button
               class="icon-button"
               :aria-label="`Rename ${project.title}`"
               :disabled="!!busy"
-              @click="manage(project, 'rename')"
+              @click="manage(project, 'rename', destinationSource)"
             >
               <Pencil :size="16" /></button
             ><button
               class="icon-button"
               :aria-label="`Delete ${project.title}`"
               :disabled="!!busy"
-              @click="manage(project, 'delete')"
+              @click="manage(project, 'delete', destinationSource)"
             >
               <Trash2 :size="16" /></button
             ><RouterLink
@@ -342,11 +389,26 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
             /></RouterLink>
           </div>
         </div>
+        <div v-if="accountUser && localSaved.length" class="device-projects">
+          <div class="section-header"><h2>Only on this device <span class="count-badge">{{ localSaved.length }}</span></h2></div>
+          <p class="library-description">These scripts could not sync yet. They are safe on this device; retry when you are online.</p>
+          <div v-for="project in localSaved" :key="project.id" class="project-row">
+            <RouterLink :to="projectUrl(project.id, 'local')" class="project-link">
+              <span class="project-icon"><FileText :size="21" :stroke-width="1.4" /></span>
+              <span class="project-info"><strong>{{ project.title }}</strong><small>{{ project.sourceFilename || 'Your script' }}</small></span>
+              <span class="project-date">Edited {{ dateLabel(project.updatedAt) }}</span>
+            </RouterLink>
+            <button class="text-button copy-account" :disabled="!!busy" @click="moveToAccount(project)"><CloudUpload :size="16" /> Retry sync</button>
+            <button class="icon-button" :aria-label="`Rename ${project.title}`" :disabled="!!busy" @click="manage(project, 'rename', 'local')"><Pencil :size="16" /></button>
+            <button class="icon-button" :aria-label="`Delete ${project.title}`" :disabled="!!busy" @click="manage(project, 'delete', 'local')"><Trash2 :size="16" /></button>
+            <RouterLink :to="projectUrl(project.id, 'local')" class="icon-button" :aria-label="`Open ${project.title}`"><ArrowRight :size="18" /></RouterLink>
+          </div>
+        </div>
       </section>
       <footer class="home-footer">
-        <HardDrive :size="15" />
+        <HardDrive v-if="!accountUser" :size="15" /><CloudUpload v-else :size="15" />
         <p>
-          {{ library === 'account' ? 'Your account scripts sync across devices.' : 'Scripts in this browser stay on this device.' }}<br /><span
+          {{ accountUser ? 'New scripts sync to your account.' : 'Scripts in this browser stay on this device.' }}<br /><span
             >Export a project backup to keep a separate copy.</span
           >
         </p>
@@ -368,7 +430,7 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
       </form>
       <template v-else
         ><p>
-          “{{ target?.title }}” and its reference images will be removed from this browser. Export a
+          “{{ target?.title }}” and its reference images will be removed from {{ targetSource === 'account' ? 'your account' : 'this browser' }}. Export a
           backup first if you want to keep a copy.
         </p>
         <div class="dialog-actions">
