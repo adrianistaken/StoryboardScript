@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
+import { initializeAuth } from './services/auth'
 import HomeView from './views/HomeView.vue'
 import WorkspaceView from './views/WorkspaceView.vue'
 import '@fontsource/source-sans-3/400.css'
@@ -16,4 +17,5 @@ const router = createRouter({
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
+void initializeAuth()
 createApp(App).use(router).mount('#app')

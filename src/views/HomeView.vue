@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowRight,
   FileText,
@@ -10,8 +10,12 @@ import {
   Trash2,
   ArchiveRestore,
   Plus,
+  CloudUpload,
 } from '@lucide/vue'
 import Brand from '../components/Brand.vue'
+import AccountMenu from '../components/AccountMenu.vue'
+import { accountUser, accountsEnabled } from '../services/auth'
+import { cloudRepository } from '../services/cloud'
 import Modal from '../components/Modal.vue'
 import ImportReview from '../components/ImportReview.vue'
 import type { ImportDraft, Project } from '../types'
@@ -20,6 +24,13 @@ import { createDocument, errorMessage, narrationTime, wordCount } from '../utils
 import { createExample } from '../example'
 
 const router = useRouter()
+const route = useRoute()
+const library = ref<'local' | 'account'>(route.query.storage === 'local' ? 'local' : accountUser.value ? 'account' : 'local')
+const cloud = computed(() => accountUser.value ? cloudRepository(accountUser.value.id) : undefined)
+const store = computed(() => library.value === 'account' && cloud.value ? cloud.value : projects)
+const projectUrl = (id: string, source = library.value) =>
+  `/project/${id}${source === 'account' ? '?storage=account' : ''}`
+let refreshVersion = 0
 const saved = ref<Project[]>([]),
   loading = ref(true),
   busy = ref(''),
@@ -33,15 +44,42 @@ const target = ref<Project>(),
   action = ref<'rename' | 'delete'>('rename'),
   renameTitle = ref('')
 async function refresh() {
+  const version = ++refreshVersion
+  loading.value = true
+  saved.value = []
   try {
-    saved.value = await projects.list()
+    const result = await store.value.list()
+    if (version === refreshVersion) saved.value = result
+  } catch (e) {
+    if (version === refreshVersion) error.value = errorMessage(e)
+  } finally {
+    if (version === refreshVersion) loading.value = false
+  }
+}
+watch(() => accountUser.value?.id, (id) => {
+  library.value = id ? 'account' : 'local'
+  target.value = undefined
+  error.value = ''
+})
+watch([library, () => accountUser.value?.id], refresh, { immediate: true })
+async function copyToAccount(project: Project) {
+  if (!cloud.value || busy.value) return
+  busy.value = 'Copying script to your account…'
+  error.value = ''
+  const destination = cloud.value
+  try {
+    const doc = await projects.load(project.id)
+    if (!doc) throw new Error('This script could not be found in this browser.')
+    const { exportBackup, importBackup } = await import('../services/backup')
+    const copy = await importBackup(await exportBackup(doc))
+    await destination.save(copy)
+    library.value = 'account'
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
-    loading.value = false
+    busy.value = ''
   }
 }
-onMounted(refresh)
 async function readPdf(file?: File) {
   if (!file || busy.value) return
   error.value = ''
@@ -69,13 +107,15 @@ function dropped(event: DragEvent) {
   void readPdf(event.dataTransfer?.files[0])
 }
 async function confirmImport(value: ImportDraft) {
+  if (busy.value) return
+  const destination = store.value, source = library.value
   busy.value = 'Saving project…'
   error.value = ''
   try {
     const doc = createDocument(value)
-    await projects.save(doc)
+    await destination.save(doc)
     draft.value = undefined
-    await router.push(`/project/${doc.project.id}`)
+    await router.push(projectUrl(doc.project.id, source))
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -83,6 +123,8 @@ async function confirmImport(value: ImportDraft) {
   }
 }
 async function restore(event: Event) {
+  if (busy.value) return
+  const destination = store.value, source = library.value
   const el = event.target as HTMLInputElement,
     file = el.files?.[0]
   el.value = ''
@@ -92,8 +134,8 @@ async function restore(event: Event) {
   try {
     const { importBackup } = await import('../services/backup')
     const doc = await importBackup(file)
-    await projects.save(doc)
-    await router.push(`/project/${doc.project.id}`)
+    await destination.save(doc)
+    await router.push(projectUrl(doc.project.id, source))
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -101,12 +143,14 @@ async function restore(event: Event) {
   }
 }
 async function example() {
+  if (busy.value) return
+  const destination = store.value, source = library.value
   busy.value = 'Opening example…'
   error.value = ''
   try {
     const doc = createExample()
-    await projects.save(doc)
-    await router.push(`/project/${doc.project.id}`)
+    await destination.save(doc)
+    await router.push(projectUrl(doc.project.id, source))
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -119,14 +163,17 @@ function manage(project: Project, mode: 'rename' | 'delete') {
   renameTitle.value = project.title
 }
 async function completeAction() {
-  if (!target.value) return
+  if (!target.value || busy.value) return
+  busy.value = 'Updating script…'
   try {
-    if (action.value === 'delete') await projects.delete(target.value.id)
-    else await projects.rename(target.value.id, renameTitle.value)
+    if (action.value === 'delete') await store.value.delete(target.value.id)
+    else await store.value.rename(target.value.id, renameTitle.value)
     target.value = undefined
     await refresh()
   } catch (e) {
     error.value = errorMessage(e)
+  } finally {
+    busy.value = ''
   }
 }
 const dateLabel = (date: string) =>
@@ -140,7 +187,7 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
 <template>
   <div class="home-page">
     <header class="home-header">
-      <Brand /><span class="local-label"><HardDrive :size="15" /> Saved in this browser</span>
+      <Brand /><AccountMenu /><span v-if="!accountsEnabled" class="local-label"><HardDrive :size="15" /> Saved in this browser</span>
     </header>
     <div v-if="error" class="error-banner" role="alert">
       <span>{{ error }}</span
@@ -235,6 +282,11 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
         </button>
       </section>
       <section class="saved-projects" aria-labelledby="saved-title">
+        <div v-if="accountUser" class="library-tabs" role="group" aria-label="Script storage">
+          <button :aria-pressed="library === 'account'" :disabled="!!busy" @click="library = 'account'">Your account</button>
+          <button :aria-pressed="library === 'local'" :disabled="!!busy" @click="library = 'local'">This browser</button>
+          <span>{{ library === 'account' ? 'New scripts save to your account.' : 'New scripts stay on this device.' }}</span>
+        </div>
         <div class="section-header">
           <h2 id="saved-title">
             Your scripts <span v-if="saved.length" class="count-badge">{{ saved.length }}</span>
@@ -251,7 +303,7 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
         </div>
         <div v-else class="project-list">
           <div v-for="project in saved" :key="project.id" class="project-row">
-            <RouterLink :to="`/project/${project.id}`" class="project-link"
+            <RouterLink :to="projectUrl(project.id)" class="project-link"
               ><span class="project-icon"><FileText :size="21" :stroke-width="1.4" /></span
               ><span class="project-info"
                 ><strong>{{ project.title }}</strong
@@ -261,19 +313,29 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
               ></RouterLink
             >
             <button
+              v-if="accountUser && library === 'local'"
+              class="icon-button"
+              :aria-label="`Copy ${project.title} to account`"
+              title="Copy to your account"
+              :disabled="!!busy"
+              @click="copyToAccount(project)"
+            ><CloudUpload :size="18" /></button>
+            <button
               class="icon-button"
               :aria-label="`Rename ${project.title}`"
+              :disabled="!!busy"
               @click="manage(project, 'rename')"
             >
               <Pencil :size="16" /></button
             ><button
               class="icon-button"
               :aria-label="`Delete ${project.title}`"
+              :disabled="!!busy"
               @click="manage(project, 'delete')"
             >
               <Trash2 :size="16" /></button
             ><RouterLink
-              :to="`/project/${project.id}`"
+              :to="projectUrl(project.id)"
               class="icon-button"
               :aria-label="`Open ${project.title}`"
               ><ArrowRight :size="18"
@@ -284,8 +346,8 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
       <footer class="home-footer">
         <HardDrive :size="15" />
         <p>
-          Private by design. Your scripts stay on this device.<br /><span
-            >Export a project backup to move between browsers or keep a safe copy.</span
+          {{ library === 'account' ? 'Your account scripts sync across devices.' : 'Scripts in this browser stay on this device.' }}<br /><span
+            >Export a project backup to keep a separate copy.</span
           >
         </p>
       </footer>

@@ -1,0 +1,84 @@
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import { Cloud, LogOut } from '@lucide/vue'
+import Modal from './Modal.vue'
+import { accountsEnabled, accountUser, sendSignIn, signOut } from '../services/auth'
+import { errorMessage } from '../utils'
+const open = ref(false),
+  email = ref(''),
+  busy = ref(false),
+  error = ref(''),
+  sent = ref(false)
+watch(accountUser, (value) => {
+  if (value) {
+    open.value = false
+    sent.value = false
+  }
+})
+async function submit() {
+  busy.value = true
+  error.value = ''
+  try {
+    await sendSignIn(email.value.trim())
+    sent.value = true
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = false
+  }
+}
+async function leave() {
+  busy.value = true
+  error.value = ''
+  try {
+    await signOut()
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = false
+  }
+}
+</script>
+<template>
+  <div v-if="accountsEnabled" class="account-menu">
+    <template v-if="accountUser">
+      <span class="account-email">{{ accountUser.email }}</span>
+      <button class="text-button" :disabled="busy" @click="leave">
+        <LogOut :size="15" /> Sign out
+      </button>
+    </template>
+    <button v-else class="button secondary" @click="open = true">
+      <Cloud :size="16" /> Sign in to sync
+    </button>
+    <span v-if="error && !open" role="alert">{{ error }}</span>
+    <Modal :open="open" title="Your scripts, on any device" @close="open = false">
+      <p>
+        Sign in or create an account with an email link. Scripts in your account include your
+        writing, reference images, and reading pace.
+      </p>
+      <p v-if="sent" class="notice" role="status">
+        Check your email for a sign-in link. Open it to continue.
+      </p>
+      <form @submit.prevent="submit">
+        <label class="field-label account-field"
+          >Email<input
+            v-model="email"
+            type="email"
+            autocomplete="email"
+            required
+            autofocus
+            maxlength="254"
+        /></label>
+        <p v-if="error" role="alert">{{ error }}</p>
+        <div class="dialog-actions">
+          <button class="button primary" :disabled="busy">
+            {{ busy ? 'Sending…' : sent ? 'Send another link' : 'Email me a sign-in link' }}
+          </button>
+        </div>
+      </form>
+      <p class="account-note">
+        Your browser-only scripts stay here until you choose to copy them to your account.
+      </p>
+    </Modal>
+  </div>
+</template>

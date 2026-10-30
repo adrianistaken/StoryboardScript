@@ -19,6 +19,9 @@ import {
 } from '@lucide/vue'
 import StoryboardColumn from '../components/StoryboardColumn.vue'
 import Modal from '../components/Modal.vue'
+import { projects } from '../services/storage'
+import { cloudRepository } from '../services/cloud'
+import { accountUser } from '../services/auth'
 import { useProject } from '../composables/useProject'
 import { useBoardPan } from '../composables/useBoardPan'
 import {
@@ -35,6 +38,8 @@ import type { Section } from '../types'
 import { validateImage } from '../services/media'
 
 const route = useRoute()
+const isCloud = route.query.storage === 'account'
+const projectStore = isCloud ? cloudRepository(accountUser.value?.id ?? '') : projects
 const {
   doc,
   sections,
@@ -48,7 +53,7 @@ const {
   undo,
   redo,
   breakHistoryGroup,
-} = useProject()
+} = useProject(projectStore)
 const loading = ref(true),
   error = ref(''),
   busy = ref(''),
@@ -358,7 +363,7 @@ async function exportProject(kind: 'pdf' | 'backup') {
   </main>
   <div v-else class="workspace" @focusout="breakHistoryGroup" @beforeinput="historyInput">
     <header class="workspace-header">
-      <RouterLink to="/" class="back-projects" aria-label="Back to your scripts"
+      <RouterLink :to="isCloud ? '/?storage=account' : '/?storage=local'" class="back-projects" aria-label="Back to your scripts"
         ><ArrowLeft :size="20"
       /></RouterLink>
       <div class="workspace-title">
@@ -408,7 +413,7 @@ async function exportProject(kind: 'pdf' | 'backup') {
       ><Columns3 :size="16" /> {{ glance ? 'Back to board' : 'Story at a glance' }}</button>
       <span class="save-status" :class="status" role="status"
         ><Check v-if="status === 'saved'" :size="14" /><span v-else class="status-dot" />{{
-          status === 'saved' ? 'Saved locally' : status === 'saving' ? 'Saving…' : 'Not saved'
+          status === 'saved' ? (isCloud ? 'Synced' : 'Saved locally') : status === 'saving' ? 'Saving…' : 'Not saved'
         }}</span
       >
       <div class="history-controls" role="group" aria-label="Edit history">

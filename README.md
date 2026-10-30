@@ -1,6 +1,6 @@
 # Storyboard Script
 
-A browser-local workspace for seeing, editing, and rearranging video scripts. Import a selectable-text PDF, review its proposed sections, and work with the whole script as a horizontal board.
+A workspace for seeing, editing, and rearranging video scripts. Import a selectable-text PDF, review its proposed sections, and work with the whole script as a horizontal board. Projects can stay in this browser or sync through an optional account.
 
 ## Run locally
 
@@ -37,11 +37,13 @@ One heading means one section. Subheadings also create columns; the app does not
 
 ## Your data
 
-Projects live in **IndexedDB in this browser profile, on this device and site address**. No account or backend is involved. No scripts or images are uploaded, and there is no telemetry. PDF processing, image validation, backups, and export all happen locally. Fonts and the PDF worker are bundled with the app.
+Without cloud configuration, projects live in **IndexedDB in this browser profile, on this device and site address**. No scripts or images are uploaded, and there is no telemetry. PDF processing, image validation, backups, and export all happen locally. Fonts and the PDF worker are bundled with the app.
 
-Localhost, a deployed site, another browser, and another computer each have separate storage. Clearing site data removes locally stored projects. Private browsing or browser cleanup may also discard data. **A project ZIP backup is the way to transfer or preserve your work.** A script PDF contains only headings and narration; it does not contain attached images, reading pace, or project IDs.
+With Supabase configured, **Sign in to sync** sends an email link to create or access an account. Signed-in users can select **Your account** to save new scripts online, or **This browser** to keep them on this device. Existing browser scripts remain local until **Copy to your account** is chosen for each script. Account scripts and their reference images are stored in private, user-scoped cloud storage and can be opened on another device after signing in with the same email. A script changed on another device cannot silently overwrite newer cloud edits; export a backup of unsaved changes and reopen the latest cloud copy if a conflict occurs.
 
-Wait for **Saved locally** before closing the page. If storage fails, the current draft remains visible and an export can still capture it. The app warns before leaving unsaved work. Avoid editing the same project in multiple tabs at once; there is no live multi-tab collaboration.
+Localhost, a deployed site, another browser, and another computer each have separate browser storage. Clearing site data removes locally stored projects. Private browsing or browser cleanup may also discard data. **Export a project ZIP backup to preserve a separate copy of your work.** A script PDF contains only headings and narration; it does not contain attached images, reading pace, or project IDs.
+
+Wait for **Saved locally** or **Synced** before closing the page. If storage fails, the current draft remains visible and an export can still capture it. The app warns before leaving unsaved work. Avoid editing the same project in multiple tabs at once; there is no live multi-tab collaboration.
 
 ## PDF support and limitations
 
@@ -110,8 +112,17 @@ Vercel's free Hobby plan supports personal, non-commercial projects. To deploy:
 
 1. Open [Vercel's new project page](https://vercel.com/new) and import `adrianistaken/StoryboardScript` into your personal Hobby account.
 2. Import that repository into Vercel and select the **Vite** preset with Node **24.x**.
-3. Use `npm run build` as the build command and `dist` as the output directory. No environment variables or server/database are required.
+3. Use `npm run build` as the build command and `dist` as the output directory. The app works without environment variables in browser-only mode. For accounts, configure Supabase as described below.
 4. `vercel.json` supplies the SPA fallback for `/project/:id`. Assets and fonts are served as static files.
-5. Open the deployed app, create or restore a project, and refresh its URL to verify routing. Export a ZIP from your local browser and import it on the deployed site to transfer your projects.
+5. Open the deployed app, create or restore a project, and refresh its URL to verify routing.
+
+## Enable accounts and cross-device sync
+
+1. Create a Supabase project and run [`supabase/migrations/202610300001_accounts.sql`](supabase/migrations/202610300001_accounts.sql) in its SQL editor. This creates the project table, private image bucket, and owner-only access rules.
+2. In Supabase Authentication, enable Email. For magic links, the email template must use the confirmation URL. Set the Site URL to the deployed app origin and allow the deployed app and local development origin (`http://127.0.0.1:5173`) as redirect URLs. The built-in email sender only delivers to project team members and has a low rate limit; configure [custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp) before allowing other people to sign up.
+3. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` from the Supabase project settings in `.env.local` for local development and in Vercel environment variables for deployment. See [`.env.example`](.env.example). Use only the public publishable key; never put a service-role or secret key in a `VITE_` variable.
+4. Rebuild and deploy. Sign in on one device, save or copy a script to **Your account**, then sign in on another device to open it.
+
+Cloud saves require an internet connection. The app keeps a draft visible and offers backup export if a save fails, but account scripts are not automatically mirrored into browser storage for offline editing. Browser-only scripts stay on the device where they were created.
 
 Dependencies are pinned in `package-lock.json`. Source Sans 3 is distributed under the SIL Open Font License; see `public/fonts/LICENSE.md`.

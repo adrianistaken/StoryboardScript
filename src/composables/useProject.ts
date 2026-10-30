@@ -5,7 +5,7 @@ import { cloneDocument, errorMessage, orderedSections } from '../utils'
 import { projects } from '../services/storage'
 import { createHistory } from '../services/history'
 
-export function useProject() {
+export function useProject(repository: Pick<typeof projects, 'load' | 'save'> = projects) {
   const doc = ref<ProjectDocument>()
   const canUndo = ref(false)
   const canRedo = ref(false)
@@ -27,7 +27,7 @@ export function useProject() {
       .catch(() => {})
       .then(async () => {
         try {
-          await projects.save(snapshot)
+          await repository.save(snapshot)
           savedVersion = snapshotVersion
           if (savedVersion === version) {
             status.value = 'saved'
@@ -74,7 +74,7 @@ export function useProject() {
     return true
   }
   async function load(id: string) {
-    doc.value = await projects.load(id)
+    doc.value = await repository.load(id)
     history = doc.value ? createHistory(doc.value) : undefined
     updateHistoryState()
   }

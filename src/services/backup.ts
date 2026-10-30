@@ -131,7 +131,7 @@ export function validateManifest(input: unknown): Manifest {
   return { format: 'storyboard-script', version: SCHEMA_VERSION, project, sections, images }
 }
 
-export async function exportBackup(doc: ProjectDocument): Promise<Blob> {
+export function projectManifest(doc: ProjectDocument): Manifest {
   const manifest: Manifest = {
     format: 'storyboard-script',
     version: SCHEMA_VERSION,
@@ -142,7 +142,11 @@ export async function exportBackup(doc: ProjectDocument): Promise<Blob> {
       path: `images/${image.id}.${extensions[image.mimeType]}`,
     })),
   }
-  validateManifest(manifest)
+  return validateManifest(manifest)
+}
+
+export async function exportBackup(doc: ProjectDocument): Promise<Blob> {
+  const manifest = projectManifest(doc)
   const json = JSON.stringify(manifest)
   const manifestSize = new TextEncoder().encode(json).length
   const total = doc.images.reduce((n, i) => n + i.blob.size, manifestSize)
