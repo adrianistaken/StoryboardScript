@@ -46,7 +46,7 @@ test('import, edit, add, move, refresh, and delete a section', async ({ page }) 
   await expect(page.locator('.total-time')).toContainText('estimated narration')
   await page.getByRole('button', { name: 'Move An unexpected morning right', exact: true }).click()
   expect((await titles(page))[0]).toBe('The change')
-  await page.getByRole('button', { name: 'Add a section' }).click()
+  await page.getByRole('button', { name: 'Add section after A quiet ending' }).click()
   await page
     .getByRole('textbox', { name: 'Section title', exact: true })
     .last()

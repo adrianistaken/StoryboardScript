@@ -11,7 +11,6 @@ import {
   Download,
   FileText,
   Hand,
-  Plus,
   Archive,
   RotateCw,
 } from '@lucide/vue'
@@ -53,6 +52,27 @@ const {
 const deleteId = ref('')
 const deletedSection = computed(() => sections.value.find((s) => s.id === deleteId.value))
 const totalWords = computed(() => sections.value.reduce((n, s) => n + wordCount(s.text), 0))
+const animateSection = async (element: HTMLElement | null, direction: 'in' | 'out') => {
+  if (!element || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const entering = direction === 'in'
+  const animation = element.animate(
+    entering
+      ? [
+          { opacity: 0, transform: 'translateY(7px) scale(.98)' },
+          { opacity: 1, transform: 'translateY(0) scale(1)' },
+        ]
+      : [
+          { opacity: 1, transform: 'scale(1)' },
+          { opacity: 0, transform: 'scale(.97)' },
+        ],
+    {
+      duration: entering ? 190 : 150,
+      easing: entering ? 'cubic-bezier(.2,.75,.3,1)' : 'ease-in',
+      fill: 'both',
+    },
+  )
+  if (!entering) await animation.finished.catch(() => {})
+}
 let resizeObserver: ResizeObserver | undefined
 function syncScroll() {
   if (scroll.value) {
@@ -75,8 +95,10 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => resizeObserver?.disconnect())
 function navigate(offset: number) {
+  const gap = scroll.value?.querySelector('.board-track')
+  const columnGap = gap ? parseFloat(getComputedStyle(gap).columnGap) || 0 : 0
   scroll.value?.scrollBy({
-    left: offset * ((scroll.value.querySelector('.script-column')?.clientWidth ?? 330) + 18),
+    left: offset * ((scroll.value.querySelector('.script-column')?.clientWidth ?? 330) + columnGap),
     behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
   })
 }
@@ -129,12 +151,16 @@ async function move(id: string, offset: number) {
     }
   }
 }
-async function addSection() {
+async function addSection(anchorId?: string, side: 'left' | 'right' = 'right') {
   if (!doc.value) return
   if (sections.value.length >= limits.sections) {
     error.value = 'A project can contain up to 500 sections.'
     return
   }
+  const order = doc.value.project.sectionOrder
+  const anchor = anchorId ? order.indexOf(anchorId) : -1
+  if (anchorId && anchor < 0) return
+  const position = anchor < 0 ? order.length : anchor + (side === 'right' ? 1 : 0)
   const id = crypto.randomUUID()
   doc.value.sections.push({
     id,
@@ -143,21 +169,27 @@ async function addSection() {
     text: '',
     imageIds: [],
   })
-  doc.value.project.sectionOrder.push(id)
+  order.splice(position, 0, id)
   changed()
   await nextTick()
   syncScroll()
-  scroll.value
-    ?.querySelector<HTMLTextAreaElement>(`[data-section-id="${id}"] .section-title`)
-    ?.focus()
+  const column = scroll.value?.querySelector<HTMLElement>(`[data-section-id="${id}"]`)
+  void animateSection(column ?? null, 'in')
+  const title = column?.querySelector<HTMLTextAreaElement>('.section-title')
+  title?.focus()
+  title?.select()
 }
-function deleteSection() {
+async function deleteSection() {
   if (!doc.value || !deleteId.value) return
-  doc.value.sections = doc.value.sections.filter((s) => s.id !== deleteId.value)
+  const id = deleteId.value
+  const column = scroll.value?.querySelector<HTMLElement>(`[data-section-id="${id}"]`)
+  await animateSection(column ?? null, 'out')
+  if (!doc.value || deleteId.value !== id) return
+  doc.value.sections = doc.value.sections.filter((s) => s.id !== id)
   doc.value.project.sectionOrder = doc.value.project.sectionOrder.filter(
-    (id) => id !== deleteId.value,
+    (sectionId) => sectionId !== id,
   )
-  doc.value.images = doc.value.images.filter((i) => i.sectionId !== deleteId.value)
+  doc.value.images = doc.value.images.filter((i) => i.sectionId !== id)
   deleteId.value = ''
   changed()
   void nextTick(syncScroll)
@@ -369,17 +401,12 @@ async function exportProject(kind: 'pdf' | 'backup') {
             :wpm="doc.project.narrationWpm"
             :images="doc.images.filter((i) => element.imageIds.includes(i.id))"
             @edit="edit"
+            @insert="addSection"
             @move="move"
             @add-images="addImages"
             @remove-image="removeImage"
             @remove-section="requestDelete"
         /></template>
-        <template #footer
-          ><button class="add-section" @click="addSection">
-            <span class="add-section-icon"><Plus :size="25" :stroke-width="1.3" /></span
-            ><strong>Add a section</strong><span>A new beat in your story</span>
-          </button></template
-        >
       </draggable>
     </main>
     <footer class="board-navigation">

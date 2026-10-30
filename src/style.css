@@ -915,8 +915,8 @@ input[type='range'] {
 .board-track {
   display: flex;
   align-items: flex-start;
-  gap: 18px;
-  padding: 26px 28px 40px;
+  gap: 24px;
+  padding: 26px 36px 40px;
   width: max-content;
   min-width: 100%;
   min-height: 100%;
@@ -943,6 +943,33 @@ input[type='range'] {
   display: flex;
   gap: 0;
   align-items: center;
+}
+.insert-gap {
+  position: absolute;
+  top: 56px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #a8b9b4;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--accent);
+  box-shadow: 0 1px 3px #202a2215;
+}
+.insert-before {
+  left: -22px;
+}
+.insert-after {
+  right: -22px;
+}
+.insert-gap:hover:not(:disabled),
+.insert-gap:focus-visible {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
 }
 .drag-handle {
   display: inline-flex;
@@ -1073,42 +1100,6 @@ input[type='range'] {
 .script-text::placeholder {
   color: #919992;
 }
-.add-section {
-  width: clamp(300px, calc((100vw - 110px) / 4), 380px);
-  height: 286px;
-  border: 1px dashed #c5cfca;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 10px;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-.add-section:hover {
-  background: #eaf0e7;
-  border-color: #8baba4;
-}
-.add-section-icon {
-  width: 48px;
-  height: 48px;
-  background: #e7ece4;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent);
-  margin-bottom: 6px;
-}
-.add-section strong {
-  font-size: 16px;
-  font-weight: 500;
-  color: #52696a;
-}
-.add-section > span:last-child {
-  font-size: 12px;
-}
 .column-ghost {
   opacity: 0.35;
   border-color: var(--accent);
@@ -1172,10 +1163,9 @@ input[type='range'] {
   .board-track {
     padding-left: 38px;
     padding-right: 38px;
-    gap: 22px;
+    gap: 24px;
   }
-  .script-column,
-  .add-section {
+  .script-column {
     width: 380px;
   }
 }
@@ -1312,11 +1302,9 @@ input[type='range'] {
     display: none;
   }
   .board-track {
-    padding: 16px 16px 30px;
-    gap: 14px;
+    padding: 16px 34px 30px;
   }
-  .script-column,
-  .add-section {
+  .script-column {
     width: min(320px, calc(100vw - 48px));
   }
   .board-navigation {

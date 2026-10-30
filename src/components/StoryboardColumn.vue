@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, GripVertical, Trash2 } from '@lucide/vue'
+import { ArrowLeft, ArrowRight, GripVertical, Trash2, Plus } from '@lucide/vue'
 import type { ReferenceImage, Section } from '../types'
-import { narrationTime, wordCount } from '../utils'
+import { limits, narrationTime, wordCount } from '../utils'
 import AutoTextarea from './AutoTextarea.vue'
 import ImageTray from './ImageTray.vue'
 defineProps<{
@@ -14,6 +14,7 @@ defineProps<{
 const emit = defineEmits<{
   edit: [id: string, field: 'title' | 'text', value: string]
   move: [id: string, offset: number]
+  insert: [id: string, side: 'left' | 'right']
   addImages: [id: string, files: File[]]
   removeImage: [id: string]
   removeSection: [id: string]
@@ -62,6 +63,25 @@ const emit = defineEmits<{
         /></span>
       </div>
     </div>
+    <button
+      class="insert-gap insert-before"
+      :disabled="count >= limits.sections"
+      :aria-label="`Add section before ${section.title}`"
+      :title="`Add a blank section before ${section.title}`"
+      @click="emit('insert', section.id, 'left')"
+    >
+      <Plus :size="12" />
+    </button>
+    <button
+      v-if="index === count - 1"
+      class="insert-gap insert-after"
+      :disabled="count >= limits.sections"
+      :aria-label="`Add section after ${section.title}`"
+      :title="`Add a blank section after ${section.title}`"
+      @click="emit('insert', section.id, 'right')"
+    >
+      <Plus :size="12" />
+    </button>
     <ImageTray
       :images="images"
       :section-title="section.title || 'Untitled section'"
