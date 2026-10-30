@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, GripVertical, Trash2, Plus } from '@lucide/vue'
-import type { ReferenceImage, Section } from '../types'
+import { ArrowLeft, ArrowRight, GripVertical, Trash2, Plus, Palette } from '@lucide/vue'
+import type { ReferenceImage, Section, SectionColor } from '../types'
 import { limits, narrationTime, wordCount } from '../utils'
 import AutoTextarea from './AutoTextarea.vue'
 import ImageTray from './ImageTray.vue'
-defineProps<{
+const props = defineProps<{
   section: Section
   index: number
   count: number
@@ -18,14 +18,29 @@ const emit = defineEmits<{
   addImages: [id: string, files: File[]]
   removeImage: [id: string]
   removeSection: [id: string]
+  color: [id: string, color: Section['color']]
 }>()
+const colors: { name: SectionColor; label: string }[] = [
+  { name: 'blue', label: 'Blue' },
+  { name: 'amber', label: 'Amber' },
+  { name: 'green', label: 'Green' },
+  { name: 'purple', label: 'Purple' },
+  { name: 'rose', label: 'Rose' },
+] as const
+function setColor(event: MouseEvent, color: SectionColor | undefined) {
+  emit('color', props.section.id, color)
+  ;(event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open')
+}
 </script>
 <template>
   <article
     class="script-column"
     :data-section-id="section.id"
     :aria-label="`Section ${index + 1}: ${section.title}`"
+    :class="{ 'has-section-color': section.color }"
+    :style="section.color ? { '--section-color': `var(--section-${section.color})` } : undefined"
   >
+    <span v-if="section.color" class="section-color-strip" aria-hidden="true" />
     <div class="column-actions">
       <div class="section-stats">
         <span>{{ wordCount(section.text).toLocaleString() }} words</span>
@@ -58,6 +73,15 @@ const emit = defineEmits<{
         >
           <Trash2 :size="14" />
         </button>
+        <details class="section-color-picker">
+          <summary class="icon-button small" :aria-label="`Choose color for ${section.title}`" :title="section.color ? `Section color: ${section.color}` : 'Choose section color'">
+            <Palette :size="14" :style="section.color ? { color: `var(--section-${section.color})` } : undefined" />
+          </summary>
+          <div class="section-color-options" role="group" :aria-label="`Section colors for ${section.title}`">
+            <button class="section-color-swatch no-color" aria-label="No color" title="No color" @click="setColor($event, undefined)"><span /></button>
+            <button v-for="color in colors" :key="color.name" class="section-color-swatch" :class="`swatch-${color.name}`" :aria-label="`${color.label} section color`" :title="color.label" @click="setColor($event, color.name)"><span /></button>
+          </div>
+        </details>
         <span class="drag-handle" title="Drag to reorder" aria-hidden="true"
           ><GripVertical :size="19"
         /></span>

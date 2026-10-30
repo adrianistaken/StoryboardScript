@@ -17,7 +17,9 @@ export type Section = {
   title: string
   text: string
   imageIds: string[]
+  color?: SectionColor
 }
+export type SectionColor = 'blue' | 'amber' | 'green' | 'purple' | 'rose'
 export type ReferenceImage = {
   id: string
   projectId: string

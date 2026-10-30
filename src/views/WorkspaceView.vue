@@ -5,6 +5,7 @@ import draggable from 'vuedraggable'
 import {
   ArrowLeft,
   ArrowRight,
+  Columns3,
   Check,
   ChevronDown,
   Clock3,
@@ -55,7 +56,8 @@ const loading = ref(true),
 const scroll = ref<HTMLDivElement>(),
   scrollPosition = ref(0),
   scrollMax = ref(0),
-  exportMenu = ref<HTMLDetailsElement>()
+  exportMenu = ref<HTMLDetailsElement>(),
+  glance = ref(false)
 const {
   spaceHeld,
   panning,
@@ -67,6 +69,15 @@ const {
 const deleteId = ref('')
 const deletedSection = computed(() => sections.value.find((s) => s.id === deleteId.value))
 const totalWords = computed(() => sections.value.reduce((n, s) => n + wordCount(s.text), 0))
+const sectionDuration = (text: string) => wordCount(text) / (doc.value?.project.narrationWpm || 150)
+function openSection(id: string) {
+  glance.value = false
+  void nextTick(() => {
+    const column = scroll.value?.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(id)}"]`)
+    column?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'nearest', inline: 'center' })
+    column?.querySelector<HTMLTextAreaElement>('.section-title')?.focus({ preventScroll: true })
+  })
+}
 const animateSection = async (element: HTMLElement | null, direction: 'in' | 'out') => {
   if (!element || matchMedia('(prefers-reduced-motion: reduce)').matches) return
   const entering = direction === 'in'
@@ -161,6 +172,13 @@ function edit(id: string, field: 'title' | 'text', value: string) {
   }
   section[field] = value
   changed(`${id}:${field}`)
+}
+function setSectionColor(id: string, color: Section['color']) {
+  const section = doc.value?.sections.find((item) => item.id === id)
+  if (!section) return
+  if (color) section.color = color
+  else delete section.color
+  changed()
 }
 function reorder(next: Section[]) {
   if (doc.value) {
@@ -383,6 +401,11 @@ async function exportProject(kind: 'pdf' | 'backup') {
           /><span>WPM</span></label
         >
       </div>
+      <button
+        class="button secondary glance-toggle"
+        :aria-pressed="glance"
+        @click="glance = !glance"
+      ><Columns3 :size="16" /> {{ glance ? 'Back to board' : 'Story at a glance' }}</button>
       <span class="save-status" :class="status" role="status"
         ><Check v-if="status === 'saved'" :size="14" /><span v-else class="status-dot" />{{
           status === 'saved' ? 'Saved locally' : status === 'saving' ? 'Saving…' : 'Not saved'
@@ -432,6 +455,33 @@ async function exportProject(kind: 'pdf' | 'backup') {
       ><button v-if="error" class="text-button" @click="error = ''">Dismiss</button>
     </div>
     <main
+      v-if="glance"
+      class="glance-view"
+      aria-label="All script sections at a glance"
+    >
+      <div class="glance-view-board">
+        <button
+          v-for="(section, index) in sections"
+          :key="section.id"
+          class="glance-view-card"
+          :class="section.color ? 'has-section-color' : ''"
+          :style="{
+            '--section-height': `${Math.max(0.34, Math.sqrt(Math.max(0.12, sectionDuration(section.text))))}`,
+            ...(section.color ? { '--section-color': `var(--section-${section.color})` } : {}),
+          }"
+          :aria-label="`Open section ${index + 1}: ${section.title || 'Untitled section'}, ${narrationTime(wordCount(section.text), doc.project.narrationWpm)} estimated`"
+          @click="openSection(section.id)"
+        >
+          <span class="glance-view-index">{{ String(index + 1).padStart(2, '0') }} <span>{{ wordCount(section.text).toLocaleString() }} words</span></span>
+          <strong>{{ section.title || 'Untitled section' }}</strong>
+          <span class="glance-view-excerpt">{{ section.text.trim().split('\n').filter(Boolean).slice(0, 4).join(' ') || 'No script text yet.' }}</span>
+          <span class="glance-view-time">{{ narrationTime(wordCount(section.text), doc.project.narrationWpm) }} <span>estimated</span></span>
+          <span v-if="section.imageIds.length" class="glance-view-images">{{ section.imageIds.length }} reference {{ section.imageIds.length === 1 ? 'image' : 'images' }}</span>
+        </button>
+      </div>
+    </main>
+    <main
+      v-else
       id="main"
       ref="scroll"
       class="board-scroll"
@@ -466,6 +516,7 @@ async function exportProject(kind: 'pdf' | 'backup') {
             :count="sections.length"
             :wpm="doc.project.narrationWpm"
             :images="doc.images.filter((i) => element.imageIds.includes(i.id))"
+            @color="setSectionColor"
             @edit="edit"
             @insert="addSection"
             @move="move"

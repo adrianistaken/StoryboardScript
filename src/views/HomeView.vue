@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowRight,
@@ -16,7 +16,7 @@ import Modal from '../components/Modal.vue'
 import ImportReview from '../components/ImportReview.vue'
 import type { ImportDraft, Project } from '../types'
 import { projects } from '../services/storage'
-import { createDocument, errorMessage } from '../utils'
+import { createDocument, errorMessage, narrationTime, wordCount } from '../utils'
 import { createExample } from '../example'
 
 const router = useRouter()
@@ -131,6 +131,11 @@ async function completeAction() {
 }
 const dateLabel = (date: string) =>
   new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(date))
+const storyPreview = createExample()
+const previewSections = computed(() =>
+  storyPreview.project.sectionOrder.map((id) => storyPreview.sections.find((section) => section.id === id)!),
+)
+const previewWords = computed(() => previewSections.value.reduce((total, section) => total + wordCount(section.text), 0))
 </script>
 <template>
   <div class="home-page">
@@ -179,22 +184,29 @@ const dateLabel = (date: string) =>
             Explore an example <ArrowRight :size="16" />
           </button>
         </div>
-        <div class="story-illustration" aria-hidden="true">
-          <div
-            v-for="(label, i) in ['The opening', 'The story', 'The payoff']"
-            :key="label"
-            class="illustration-page"
-            :class="`illustration-${i}`"
-          >
-            <span>{{ String(i + 1).padStart(2, '0') }}</span
-            ><strong>{{ label }}</strong>
-            <div class="illustration-image"><div /></div>
-            <i
-              v-for="n in [5, 10, 7][i]"
-              :key="n"
-              :style="{ width: `${[89, 74, 94, 63, 82][n % 5]}%` }"
-            />
+        <div class="story-glance" aria-label="Example script section overview">
+          <div class="glance-heading">
+            <div>
+              <span class="glance-kicker">SCRIPT OVERVIEW</span>
+              <h2>The story at a glance</h2>
+            </div>
+            <span class="glance-total">{{ narrationTime(previewWords, storyPreview.project.narrationWpm) }} <small>estimated</small></span>
           </div>
+          <div class="glance-board">
+            <article
+              v-for="(section, index) in previewSections"
+              :key="section.id"
+              class="glance-section"
+              :class="`glance-section-${index + 1}`"
+            >
+              <span class="glance-accent" :class="`glance-accent-${index + 1}`" />
+              <span class="glance-number">{{ String(index + 1).padStart(2, '0') }}</span>
+              <h3>{{ section.title }}</h3>
+              <p>{{ section.text.split('\n').filter(Boolean).slice(0, 2).join(' ') }}</p>
+              <span class="glance-duration">{{ narrationTime(wordCount(section.text), storyPreview.project.narrationWpm) }}</span>
+            </article>
+          </div>
+          <p class="glance-caption">See the structure, pacing, and estimated narration time before you dive in.</p>
         </div>
       </section>
       <section

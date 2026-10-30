@@ -6,7 +6,7 @@ import {
   ZipWriter,
   type FileEntry,
 } from '@zip.js/zip.js'
-import { SCHEMA_VERSION, type ProjectDocument, type Project, type Section } from '../types'
+import { SCHEMA_VERSION, type ProjectDocument, type Project, type Section, type SectionColor } from '../types'
 import { limits } from '../utils'
 import { validateImage } from './media'
 
@@ -76,13 +76,19 @@ export function validateManifest(input: unknown): Manifest {
   if (p.sourceFilename !== undefined) project.sourceFilename = string(p.sourceFilename)
   const sections = array(data.sections, limits.sections).map((value) => {
     const s = object(value)
-    return {
+    const section: Section = {
       id: id(s.id),
       projectId: id(s.projectId),
       title: string(s.title),
       text: string(s.text, limits.textChars),
       imageIds: array(s.imageIds, limits.images).map(id),
     }
+    if (s.color !== undefined) {
+      if (!['blue', 'amber', 'green', 'purple', 'rose'].includes(String(s.color)))
+        fail('invalid section color.')
+      section.color = s.color as SectionColor
+    }
+    return section
   })
   if (!sections.length || sections.reduce((n, s) => n + s.text.length, 0) > limits.textChars)
     fail('invalid script length.')
