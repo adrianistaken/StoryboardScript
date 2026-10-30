@@ -903,6 +903,15 @@ input[type='range'] {
   scrollbar-color: #b3bfbc #e9eae3;
   scrollbar-width: thin;
 }
+.board-scroll.pan-ready,
+.board-scroll.pan-ready * {
+  cursor: grab !important;
+}
+.board-scroll.panning,
+.board-scroll.panning * {
+  cursor: grabbing !important;
+  user-select: none;
+}
 .board-track {
   display: flex;
   align-items: flex-start;

@@ -28,7 +28,7 @@ npm run format      # Format source, tests, and configuration
 1. Export your script from Notion or another writing app as a selectable-text PDF.
 2. Import it and inspect the proposed headings and narration. Rename headings or the project title during review if needed.
 3. Open the storyboard. Edit titles or narration directly; changes, counts, and time estimates update automatically.
-4. Drag using the dotted handles, or use the left/right buttons. Use the plus column at the end to add a section. Deleting a section requires confirmation.
+4. Hold **Space** and drag to pan the board in any direction, or drag with the middle mouse button. While typing in a section, press **Escape** to leave the field before panning. Drag using the dotted handles, or use the left/right buttons. Use the plus column at the end to add a section. Deleting a section requires confirmation.
 5. Optionally attach one or more reference images to a section. Click a thumbnail for a larger preview.
 6. Use **Export → Script PDF** to download current headings and narration in board order.
 7. Use **Export → Project backup** to preserve the full editable project, including images. Restore it using **Import backup** on the home screen.

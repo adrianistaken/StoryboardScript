@@ -10,7 +10,7 @@ import {
   Clock3,
   Download,
   FileText,
-  HardDrive,
+  Hand,
   Plus,
   Archive,
   RotateCw,
@@ -18,6 +18,7 @@ import {
 import StoryboardColumn from '../components/StoryboardColumn.vue'
 import Modal from '../components/Modal.vue'
 import { useProject } from '../composables/useProject'
+import { useBoardPan } from '../composables/useBoardPan'
 import {
   cloneDocument,
   download,
@@ -41,6 +42,14 @@ const scroll = ref<HTMLDivElement>(),
   scrollPosition = ref(0),
   scrollMax = ref(0),
   exportMenu = ref<HTMLDetailsElement>()
+const {
+  spaceHeld,
+  panning,
+  pointerdown,
+  pointermove,
+  end: endPan,
+  click: panClick,
+} = useBoardPan(scroll)
 const deleteId = ref('')
 const deletedSection = computed(() => sections.value.find((s) => s.id === deleteId.value))
 const totalWords = computed(() => sections.value.reduce((n, s) => n + wordCount(s.text), 0))
@@ -329,6 +338,14 @@ async function exportProject(kind: 'pdf' | 'backup') {
       ref="scroll"
       class="board-scroll"
       aria-label="Script storyboard"
+      tabindex="0"
+      :class="{ 'pan-ready': spaceHeld, panning }"
+      @pointerdown.capture="pointerdown"
+      @pointermove="pointermove"
+      @pointerup="endPan"
+      @pointercancel="endPan"
+      @lostpointercapture="endPan"
+      @click.capture="panClick"
       @scroll="syncScroll"
     >
       <draggable
@@ -337,6 +354,7 @@ async function exportProject(kind: 'pdf' | 'backup') {
         class="board-track"
         handle=".drag-handle"
         :animation="150"
+        :disabled="spaceHeld || panning"
         direction="horizontal"
         ghost-class="column-ghost"
         :scroll-sensitivity="90"
@@ -366,7 +384,9 @@ async function exportProject(kind: 'pdf' | 'backup') {
     </main>
     <footer class="board-navigation">
       <span class="board-hint"
-        ><HardDrive :size="13" />{{ busy || notice || 'Your script stays in this browser.' }}</span
+        ><Hand :size="13" />{{
+          busy || notice || 'Esc to stop typing. Hold Space + drag to pan.'
+        }}</span
       >
       <div class="board-scroll-controls">
         <button
