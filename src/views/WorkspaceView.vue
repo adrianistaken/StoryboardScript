@@ -13,6 +13,8 @@ import {
   Hand,
   Archive,
   RotateCw,
+  Undo2,
+  Redo2,
 } from '@lucide/vue'
 import StoryboardColumn from '../components/StoryboardColumn.vue'
 import Modal from '../components/Modal.vue'
@@ -32,7 +34,20 @@ import type { Section } from '../types'
 import { validateImage } from '../services/media'
 
 const route = useRoute()
-const { doc, sections, status, error: saveError, load, changed, flush } = useProject()
+const {
+  doc,
+  sections,
+  status,
+  error: saveError,
+  load,
+  changed,
+  flush,
+  canUndo,
+  canRedo,
+  undo,
+  redo,
+  breakHistoryGroup,
+} = useProject()
 const loading = ref(true),
   error = ref(''),
   busy = ref(''),
@@ -73,6 +88,33 @@ const animateSection = async (element: HTMLElement | null, direction: 'in' | 'ou
   )
   if (!entering) await animation.finished.catch(() => {})
 }
+function historyAction(direction: 'undo' | 'redo') {
+  if (busy.value || (direction === 'undo' ? !canUndo.value : !canRedo.value)) return false
+  const restored = direction === 'undo' ? undo() : redo()
+  if (!restored) return false
+  notice.value = direction === 'undo' ? 'Change undone.' : 'Change redone.'
+  void nextTick(syncScroll)
+  return true
+}
+function historyKey(event: KeyboardEvent) {
+  if (
+    event.defaultPrevented ||
+    event.isComposing ||
+    event.altKey ||
+    !(event.ctrlKey || event.metaKey) ||
+    document.querySelector('dialog[open]')
+  )
+    return
+  const key = event.key.toLowerCase()
+  if (key === 'z' && historyAction(event.shiftKey ? 'redo' : 'undo')) event.preventDefault()
+  else if (key === 'y' && event.ctrlKey && historyAction('redo')) event.preventDefault()
+}
+function historyInput(event: Event) {
+  const type = (event as InputEvent).inputType
+  if (type === 'historyUndo' && historyAction('undo')) event.preventDefault()
+  else if (type === 'historyRedo' && historyAction('redo')) event.preventDefault()
+}
+window.addEventListener('keydown', historyKey)
 let resizeObserver: ResizeObserver | undefined
 function syncScroll() {
   if (scroll.value) {
@@ -94,6 +136,7 @@ onMounted(async () => {
   if (scroll.value) resizeObserver.observe(scroll.value)
 })
 onBeforeUnmount(() => resizeObserver?.disconnect())
+onBeforeUnmount(() => window.removeEventListener('keydown', historyKey))
 function navigate(offset: number) {
   const gap = scroll.value?.querySelector('.board-track')
   const columnGap = gap ? parseFloat(getComputedStyle(gap).columnGap) || 0 : 0
@@ -117,7 +160,7 @@ function edit(id: string, field: 'title' | 'text', value: string) {
     return
   }
   section[field] = value
-  changed()
+  changed(`${id}:${field}`)
 }
 function reorder(next: Section[]) {
   if (doc.value) {
@@ -209,7 +252,7 @@ function setWpm(event: Event, finalize = false) {
     ? Math.max(100, Math.min(220, Math.round(value)))
     : 150
   input.value = String(doc.value.project.narrationWpm)
-  changed()
+  changed('reading-pace')
 }
 async function addImages(id: string, files: File[]) {
   if (!doc.value || busy.value) return
@@ -295,7 +338,7 @@ async function exportProject(kind: 'pdf' | 'backup') {
     </p>
     <RouterLink class="button primary" to="/">Back to your scripts</RouterLink>
   </main>
-  <div v-else class="workspace">
+  <div v-else class="workspace" @focusout="breakHistoryGroup" @beforeinput="historyInput">
     <header class="workspace-header">
       <RouterLink to="/" class="back-projects" aria-label="Back to your scripts"
         ><ArrowLeft :size="20"
@@ -305,8 +348,11 @@ async function exportProject(kind: 'pdf' | 'backup') {
           v-model="doc.project.title"
           aria-label="Project title"
           maxlength="1000"
-          @input="changed"
-          @blur="!doc.project.title.trim() && ((doc.project.title = 'Untitled script'), changed())"
+          @input="changed('project-title')"
+          @blur="
+            !doc.project.title.trim() &&
+            ((doc.project.title = 'Untitled script'), changed('project-title'))
+          "
         /><span><FileText :size="12" /> {{ doc.project.sourceFilename || 'Your script' }}</span>
       </div>
       <div class="workspace-stats">
@@ -342,6 +388,26 @@ async function exportProject(kind: 'pdf' | 'backup') {
           status === 'saved' ? 'Saved locally' : status === 'saving' ? 'Saving…' : 'Not saved'
         }}</span
       >
+      <div class="history-controls" role="group" aria-label="Edit history">
+        <button
+          class="icon-button"
+          aria-label="Undo"
+          title="Undo (Ctrl/⌘ Z)"
+          :disabled="!canUndo || !!busy"
+          @click="historyAction('undo')"
+        >
+          <Undo2 :size="18" />
+        </button>
+        <button
+          class="icon-button"
+          aria-label="Redo"
+          title="Redo (Ctrl/⌘ Shift Z)"
+          :disabled="!canRedo || !!busy"
+          @click="historyAction('redo')"
+        >
+          <Redo2 :size="18" />
+        </button>
+      </div>
       <details ref="exportMenu" class="export-menu">
         <summary class="button secondary" :aria-disabled="!!busy">
           <Download :size="16" /> Export <ChevronDown :size="14" />

@@ -796,6 +796,10 @@ input[type='range'] {
 .save-status.error {
   color: #9c493c;
 }
+.history-controls {
+  display: flex;
+  gap: 2px;
+}
 .status-dot {
   width: 6px;
   height: 6px;
@@ -1279,6 +1283,12 @@ input[type='range'] {
   }
   .workspace-title > input {
     font-size: 18px;
+  }
+  .history-controls {
+    gap: 0;
+  }
+  .history-controls .icon-button {
+    width: 27px;
   }
   .export-menu summary {
     padding: 8px 10px;

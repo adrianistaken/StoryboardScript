@@ -3,11 +3,15 @@ import { onBeforeRouteLeave } from 'vue-router'
 import type { ProjectDocument } from '../types'
 import { cloneDocument, errorMessage, orderedSections } from '../utils'
 import { projects } from '../services/storage'
+import { createHistory } from '../services/history'
 
 export function useProject() {
   const doc = ref<ProjectDocument>()
+  const canUndo = ref(false)
+  const canRedo = ref(false)
   const status = ref<'saved' | 'saving' | 'error'>('saved'),
     error = ref('')
+  let history: ReturnType<typeof createHistory> | undefined
   let version = 0,
     savedVersion = 0
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -37,7 +41,11 @@ export function useProject() {
       })
     return chain
   }
-  function changed() {
+  function updateHistoryState() {
+    canUndo.value = history?.canUndo ?? false
+    canRedo.value = history?.canRedo ?? false
+  }
+  function scheduleSave() {
     if (!doc.value) return
     version++
     doc.value.project.updatedAt = new Date().toISOString()
@@ -47,8 +55,28 @@ export function useProject() {
       void flush().catch(() => {})
     }, 200)
   }
+  function changed(key = '') {
+    if (!doc.value) return
+    doc.value.project.updatedAt = new Date().toISOString()
+    history?.record(doc.value, key)
+    updateHistoryState()
+    scheduleSave()
+  }
+  function breakHistoryGroup() {
+    history?.breakGroup()
+  }
+  function restore(direction: 'undo' | 'redo') {
+    const snapshot = history?.[direction]()
+    if (!snapshot) return false
+    doc.value = snapshot
+    updateHistoryState()
+    scheduleSave()
+    return true
+  }
   async function load(id: string) {
     doc.value = await projects.load(id)
+    history = doc.value ? createHistory(doc.value) : undefined
+    updateHistoryState()
   }
   const beforeUnload = (event: BeforeUnloadEvent) => {
     if (version !== savedVersion) {
@@ -76,5 +104,18 @@ export function useProject() {
     window.removeEventListener('beforeunload', beforeUnload)
     document.removeEventListener('visibilitychange', onVisibility)
   })
-  return { doc, sections, status, error, load, changed, flush }
+  return {
+    doc,
+    sections,
+    status,
+    error,
+    load,
+    changed,
+    flush,
+    canUndo,
+    canRedo,
+    undo: () => restore('undo'),
+    redo: () => restore('redo'),
+    breakHistoryGroup,
+  }
 }
