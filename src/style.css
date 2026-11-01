@@ -520,6 +520,64 @@ input[type='range'] {
 .home-footer span {
   color: var(--muted);
 }
+.footer-privacy {
+  margin-left: auto;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.privacy-page {
+  min-height: 100dvh;
+  background: var(--canvas);
+}
+.privacy-header {
+  padding: 24px max(28px, calc((100vw - 1040px) / 2));
+  border-bottom: 1px solid var(--rule);
+}
+.privacy-content {
+  width: min(720px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 64px 0 72px;
+  line-height: 1.65;
+}
+.privacy-kicker {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+}
+.privacy-content h1 {
+  font-size: clamp(38px, 6vw, 56px);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  margin: 10px 0 8px;
+}
+.privacy-date {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 36px !important;
+}
+.privacy-content h2 {
+  font-size: 22px;
+  line-height: 1.25;
+  margin: 38px 0 12px;
+}
+.privacy-content p + p {
+  margin-top: 14px;
+}
+.privacy-content a,
+.privacy-footer a,
+.account-note a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.privacy-footer {
+  width: min(720px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 24px 0 48px;
+  border-top: 1px solid var(--rule);
+}
 .error-banner {
   display: flex;
   align-items: center;

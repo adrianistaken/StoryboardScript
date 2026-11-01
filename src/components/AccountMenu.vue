@@ -104,6 +104,7 @@ async function leave() {
       </form>
       <p class="account-note">
         Scripts already saved on this device join your account after you sign in.
+        <RouterLink to="/privacy" @click="open = false">Privacy Policy</RouterLink>
       </p>
     </Modal>
   </div>

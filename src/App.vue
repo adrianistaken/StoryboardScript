@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onErrorCaptured, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { errorMessage } from './utils'
 import { authReady, authError } from './services/auth'
 const error = ref('')
+const route = useRoute()
 onErrorCaptured((e) => {
   error.value = errorMessage(e)
   return false
@@ -16,6 +18,6 @@ onErrorCaptured((e) => {
   <div v-if="authError" class="error-banner" role="alert">
     {{ authError }}<button class="text-button" @click="authError = ''">Dismiss</button>
   </div>
-  <RouterView v-if="authReady" :key="$route.fullPath" />
+  <RouterView v-if="authReady || route.path === '/privacy'" :key="$route.fullPath" />
   <div v-else class="loading-page" role="status">Restoring your account…</div>
 </template>

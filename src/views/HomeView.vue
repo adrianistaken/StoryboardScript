@@ -412,6 +412,7 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
             >Export a project backup to keep a separate copy.</span
           >
         </p>
+        <RouterLink to="/privacy" class="footer-privacy">Privacy Policy</RouterLink>
       </footer>
     </main>
     <Modal
