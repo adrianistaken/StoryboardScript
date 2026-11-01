@@ -1685,6 +1685,9 @@ input[type='range'] {
   text-overflow: ellipsis;
 }
 .account-field {
+  margin-top: 16px;
+}
+.account-divider + form .account-field {
   margin-top: 0;
 }
 .google-sign-in {

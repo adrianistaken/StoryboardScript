@@ -2,13 +2,18 @@
 import { ref, watch } from 'vue'
 import { Cloud, LogOut } from '@lucide/vue'
 import Modal from './Modal.vue'
-import { accountsEnabled, accountUser, sendSignIn, signInWithGoogle, signOut } from '../services/auth'
+import { accountsEnabled, accountUser, googleSignInAvailable, sendSignIn, signInWithGoogle, signOut } from '../services/auth'
 import { errorMessage } from '../utils'
 const open = ref(false),
   email = ref(''),
   busy = ref(false),
   error = ref(''),
-  sent = ref(false)
+  sent = ref(false),
+  googleAvailable = ref(false)
+watch(open, async (isOpen) => {
+  if (isOpen) googleAvailable.value = await googleSignInAvailable()
+  else googleAvailable.value = false
+})
 watch(accountUser, (value) => {
   if (value) {
     open.value = false
@@ -64,10 +69,11 @@ async function leave() {
     <span v-if="error && !open" role="alert">{{ error }}</span>
     <Modal :open="open" title="Your scripts, on any device" @close="open = false">
       <p>
-        Sign in with Google or an email link. Scripts in your account include your
+        Sign in to access your scripts on any device. Your account includes your
         writing, reference images, and reading pace.
       </p>
       <button
+        v-if="googleAvailable"
         class="button secondary google-sign-in"
         type="button"
         :disabled="busy"
@@ -75,7 +81,7 @@ async function leave() {
         <span class="google-mark" aria-hidden="true">G</span>
         Continue with Google
       </button>
-      <div class="account-divider"><span>or use email</span></div>
+      <div v-if="googleAvailable" class="account-divider"><span>or use email</span></div>
       <p v-if="sent" class="notice" role="status">
         Check your email for a sign-in link. Open it to continue.
       </p>

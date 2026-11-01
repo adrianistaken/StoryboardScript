@@ -10,6 +10,20 @@ export const accountUser = readonly(user)
 export const authReady = ref(!supabase)
 export const authError = ref('')
 
+export async function googleSignInAvailable(): Promise<boolean> {
+  if (!url || !key) return false
+  try {
+    const response = await fetch(`${url.replace(/\/$/, '')}/auth/v1/settings`, {
+      headers: { apikey: key },
+    })
+    if (!response.ok) return false
+    const settings = await response.json() as { external?: { google?: boolean } }
+    return settings.external?.google === true
+  } catch {
+    return false
+  }
+}
+
 export async function initializeAuth() {
   if (!supabase) return
   supabase.auth.onAuthStateChange((_event, session) => {
@@ -36,6 +50,8 @@ export async function sendSignIn(email: string) {
 }
 export async function signInWithGoogle() {
   if (!supabase) throw new Error('Accounts are not configured for this site.')
+  if (!await googleSignInAvailable())
+    throw new Error('Google sign-in is unavailable right now. Use the email sign-in link instead.')
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
