@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { formatTime, moveSection, narrationTime, wordCount } from '../../src/utils'
+import { duplicateDocument, formatTime, moveSection, narrationTime, wordCount } from '../../src/utils'
 import { inspectImage, validateImage } from '../../src/services/media'
 
 describe('script statistics and ordering', () => {
+  it('duplicates a project with independent section and image identifiers', () => {
+    const blob = new Blob(['image'])
+    const original = {
+      project: { id: 'project', schemaVersion: 1, title: 'Story', narrationWpm: 150, sectionOrder: ['section'], createdAt: 'old', updatedAt: 'old' },
+      sections: [{ id: 'section', projectId: 'project', title: 'Opening', text: 'Hello', imageIds: ['image'] }],
+      images: [{ id: 'image', projectId: 'project', sectionId: 'section', filename: 'image.png', mimeType: 'image/png', blob }],
+    }
+    const copy = duplicateDocument(original)
+    expect(copy.project.title).toBe('Story (copy)')
+    expect(copy.project.id).not.toBe(original.project.id)
+    expect(copy.project.sectionOrder).toEqual([copy.sections[0]!.id])
+    expect(copy.sections[0]!.projectId).toBe(copy.project.id)
+    expect(copy.sections[0]!.imageIds).toEqual([copy.images[0]!.id])
+    expect(copy.images[0]!.projectId).toBe(copy.project.id)
+    expect(copy.images[0]!.sectionId).toBe(copy.sections[0]!.id)
+    expect(copy.images[0]!.blob).toBe(blob)
+    copy.sections[0]!.text = 'Changed'
+    expect(original.sections[0]!.text).toBe('Hello')
+  })
   it('counts narration and production cues consistently', () => {
     expect(wordCount('Weʼre here.\n\n[Show the €750 prize]')).toBe(6)
     expect(wordCount(' \n\t')).toBe(0)

@@ -91,6 +91,34 @@ export function cloneDocument(doc: ProjectDocument): ProjectDocument {
     images: doc.images.map((i) => ({ ...i })),
   }
 }
+export function duplicateDocument(doc: ProjectDocument): ProjectDocument {
+  const projectId = crypto.randomUUID()
+  const now = new Date().toISOString()
+  const sectionIds = new Map(doc.sections.map((section) => [section.id, crypto.randomUUID()]))
+  const imageIds = new Map(doc.images.map((image) => [image.id, crypto.randomUUID()]))
+  return {
+    project: {
+      ...doc.project,
+      id: projectId,
+      title: `${doc.project.title} (copy)`,
+      sectionOrder: doc.project.sectionOrder.map((id) => sectionIds.get(id)!),
+      createdAt: now,
+      updatedAt: now,
+    },
+    sections: doc.sections.map((section) => ({
+      ...section,
+      id: sectionIds.get(section.id)!,
+      projectId,
+      imageIds: section.imageIds.map((id) => imageIds.get(id)!),
+    })),
+    images: doc.images.map((image) => ({
+      ...image,
+      id: imageIds.get(image.id)!,
+      projectId,
+      sectionId: sectionIds.get(image.sectionId)!,
+    })),
+  }
+}
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     if (/quota/i.test(error.name + error.message))

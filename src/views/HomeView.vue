@@ -11,6 +11,7 @@ import {
   ArchiveRestore,
   Plus,
   CloudUpload,
+  Copy,
 } from '@lucide/vue'
 import Brand from '../components/Brand.vue'
 import AccountMenu from '../components/AccountMenu.vue'
@@ -20,7 +21,7 @@ import Modal from '../components/Modal.vue'
 import ImportReview from '../components/ImportReview.vue'
 import type { ImportDraft, Project } from '../types'
 import { projects } from '../services/storage'
-import { createDocument, errorMessage, narrationTime, wordCount } from '../utils'
+import { createDocument, duplicateDocument, errorMessage, narrationTime, wordCount } from '../utils'
 import { createExample } from '../example'
 
 const router = useRouter()
@@ -44,7 +45,7 @@ const dragging = ref(false),
   progress = ref(0)
 const target = ref<Project>(),
   targetSource = ref<'local' | 'account'>('local'),
-  action = ref<'rename' | 'delete'>('rename'),
+  action = ref<'rename' | 'duplicate' | 'delete'>('rename'),
   renameTitle = ref('')
 async function refresh() {
   const version = ++refreshVersion
@@ -213,11 +214,11 @@ async function example() {
     busy.value = ''
   }
 }
-function manage(project: Project, mode: 'rename' | 'delete', source: 'local' | 'account') {
+function manage(project: Project, mode: 'rename' | 'duplicate' | 'delete', source: 'local' | 'account') {
   target.value = project
   targetSource.value = source
   action.value = mode
-  renameTitle.value = project.title
+  renameTitle.value = mode === 'duplicate' ? `${project.title} (copy)` : project.title
 }
 async function completeAction() {
   if (!target.value || busy.value) return
@@ -226,7 +227,14 @@ async function completeAction() {
     const store = targetSource.value === 'account' ? cloud.value : projects
     if (!store) throw new Error('Sign in again to update this script.')
     if (action.value === 'delete') await store.delete(target.value.id)
-    else await store.rename(target.value.id, renameTitle.value)
+    else if (action.value === 'rename') await store.rename(target.value.id, renameTitle.value)
+    else {
+      const original = await store.load(target.value.id)
+      if (!original) throw new Error('This script could not be found.')
+      const copy = duplicateDocument(original)
+      copy.project.title = renameTitle.value.trim()
+      await store.save(copy)
+    }
     target.value = undefined
     await refresh()
   } catch (e) {
@@ -369,6 +377,12 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
             >
             <button
               class="icon-button"
+              :aria-label="`Duplicate ${project.title}`"
+              :disabled="!!busy"
+              @click="manage(project, 'duplicate', destinationSource)"
+            ><Copy :size="16" /></button
+            ><button
+              class="icon-button"
               :aria-label="`Rename ${project.title}`"
               :disabled="!!busy"
               @click="manage(project, 'rename', destinationSource)"
@@ -399,6 +413,7 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
               <span class="project-date">Edited {{ dateLabel(project.updatedAt) }}</span>
             </RouterLink>
             <button class="text-button copy-account" :disabled="!!busy" @click="moveToAccount(project)"><CloudUpload :size="16" /> Retry sync</button>
+            <button class="icon-button" :aria-label="`Duplicate ${project.title}`" :disabled="!!busy" @click="manage(project, 'duplicate', 'local')"><Copy :size="16" /></button>
             <button class="icon-button" :aria-label="`Rename ${project.title}`" :disabled="!!busy" @click="manage(project, 'rename', 'local')"><Pencil :size="16" /></button>
             <button class="icon-button" :aria-label="`Delete ${project.title}`" :disabled="!!busy" @click="manage(project, 'delete', 'local')"><Trash2 :size="16" /></button>
             <RouterLink :to="projectUrl(project.id, 'local')" class="icon-button" :aria-label="`Open ${project.title}`"><ArrowRight :size="18" /></RouterLink>
@@ -417,16 +432,16 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
     </main>
     <Modal
       :open="!!target"
-      :title="action === 'rename' ? 'Rename project' : 'Delete project?'"
+      :title="action === 'rename' ? 'Rename project' : action === 'duplicate' ? 'Duplicate project' : 'Delete project?'"
       @close="target = undefined"
     >
-      <form v-if="action === 'rename'" @submit.prevent="completeAction">
+      <form v-if="action !== 'delete'" @submit.prevent="completeAction">
         <label class="field-label"
           >Project title<input v-model="renameTitle" autofocus maxlength="1000"
         /></label>
         <div class="dialog-actions">
           <button type="button" class="button secondary" @click="target = undefined">Cancel</button
-          ><button class="button primary" :disabled="!renameTitle.trim()">Save name</button>
+          ><button class="button primary" :disabled="!renameTitle.trim() || !!busy">{{ action === 'duplicate' ? 'Duplicate project' : 'Save name' }}</button>
         </div>
       </form>
       <template v-else
