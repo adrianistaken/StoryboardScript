@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowRight,
@@ -12,6 +12,8 @@ import {
   Plus,
   CloudUpload,
   Copy,
+  TriangleAlert,
+  CircleCheck,
 } from '@lucide/vue'
 import Brand from '../components/Brand.vue'
 import AccountMenu from '../components/AccountMenu.vue'
@@ -31,39 +33,44 @@ const destinationSource = computed(() => cloud.value ? 'account' : 'local')
 const projectUrl = (id: string, source: 'local' | 'account' = destinationSource.value) =>
   `/project/${id}${source === 'account' ? '?storage=account' : ''}`
 let refreshVersion = 0
-const attemptedAutoMove = new Set<string>()
+let successTimer: ReturnType<typeof setTimeout> | undefined
 const saved = ref<Project[]>([]),
   localSaved = ref<Project[]>([]),
   loading = ref(true),
-  moving = ref(false),
   busy = ref(''),
-  error = ref('')
+  error = ref(''),
+  transferError = ref<{ id: string; message: string }>(),
+  transferSuccess = ref(''),
+  transferInProgress = ref('')
 const draft = ref<ImportDraft>(),
   pdfPicker = ref<HTMLInputElement>(),
   backupPicker = ref<HTMLInputElement>()
 const dragging = ref(false),
   progress = ref(0)
+const importBusy = computed(() => transferInProgress.value ? '' : busy.value)
 const target = ref<Project>(),
   targetSource = ref<'local' | 'account'>('local'),
   action = ref<'rename' | 'duplicate' | 'delete'>('rename'),
   renameTitle = ref('')
-async function refresh() {
+async function refresh(showLoading = true) {
   const version = ++refreshVersion
-  loading.value = true
-  saved.value = []
-  localSaved.value = []
+  if (showLoading) {
+    loading.value = true
+    saved.value = []
+    localSaved.value = []
+  }
   try {
     const local = await projects.list()
     if (version !== refreshVersion) return
     if (cloud.value) {
+      const account = await cloud.value.list()
+      if (version !== refreshVersion) return
       localSaved.value = local
-      saved.value = await cloud.value.list()
-      const owner = accountUser.value?.id
-      if (owner && local.length && !attemptedAutoMove.has(owner) && !moving.value) {
-        attemptedAutoMove.add(owner)
-        void moveDeviceScripts(local)
-      }
-    } else saved.value = local
+      saved.value = account
+    } else {
+      localSaved.value = []
+      saved.value = local
+    }
   } catch (e) {
     if (version === refreshVersion) error.value = errorMessage(e)
   } finally {
@@ -72,68 +79,83 @@ async function refresh() {
 }
 function sameDocument(a: Awaited<ReturnType<typeof projects.load>>, b: Awaited<ReturnType<typeof projects.load>>) {
   if (!a || !b) return false
-  return JSON.stringify(a.project) === JSON.stringify(b.project)
-    && JSON.stringify(a.sections) === JSON.stringify(b.sections)
-    && JSON.stringify(a.images.map(({ blob, ...image }) => ({ ...image, size: blob.size })))
-      === JSON.stringify(b.images.map(({ blob, ...image }) => ({ ...image, size: blob.size })))
-}
-async function transfer(project: Project) {
-  const destination = cloud.value
-  if (!destination) throw new Error('Sign in again to move this script.')
-  const doc = await projects.load(project.id)
-  if (!doc) return
-  const existing = await destination.load(project.id)
-  if (existing && !sameDocument(doc, existing)) {
-    throw new Error(`“${project.title}” already exists in your account with different edits. Move it manually to keep both versions.`)
+  const normalized = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(normalized)
+    if (value && typeof value === 'object')
+      return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, normalized(entry)]))
+    return value
   }
-  if (!existing) await destination.save(doc)
-  const verified = await destination.load(project.id)
-  if (!sameDocument(doc, verified)) throw new Error(`Could not verify “${project.title}” in your account.`)
-  const latest = await projects.load(project.id)
-  if (!sameDocument(doc, latest)) throw new Error(`“${project.title}” changed during sync. It remains on this device; retry to upload the latest edits.`)
-  await projects.delete(project.id)
+  const withoutBlobs = (images: typeof a.images) => images.map(({ blob, ...image }) => ({ ...image, size: blob.size }))
+  return JSON.stringify(normalized(a.project)) === JSON.stringify(normalized(b.project))
+    && JSON.stringify(normalized(a.sections)) === JSON.stringify(normalized(b.sections))
+    && JSON.stringify(normalized(withoutBlobs(a.images))) === JSON.stringify(normalized(withoutBlobs(b.images)))
 }
-async function moveDeviceScripts(items: Project[]) {
-  if (moving.value || !cloud.value) return
-  moving.value = true
-  busy.value = 'Adding device scripts to your account…'
-  const failures: string[] = []
-  try {
-    for (const item of items) {
-      try { await transfer(item) } catch (e) { failures.push(errorMessage(e)) }
+async function sameContent(a: NonNullable<Awaited<ReturnType<typeof projects.load>>>, b: NonNullable<Awaited<ReturnType<typeof projects.load>>>) {
+  if (a.project.title !== b.project.title || a.project.sourceFilename !== b.project.sourceFilename ||
+      a.project.narrationWpm !== b.project.narrationWpm || a.sections.length !== b.sections.length ||
+      a.images.length !== b.images.length) return false
+  for (let index = 0; index < a.project.sectionOrder.length; index++) {
+    const first = a.sections.find((section) => section.id === a.project.sectionOrder[index])
+    const second = b.sections.find((section) => section.id === b.project.sectionOrder[index])
+    if (!first || !second || first.title !== second.title || first.text !== second.text || first.color !== second.color ||
+        first.imageIds.length !== second.imageIds.length) return false
+    for (let imageIndex = 0; imageIndex < first.imageIds.length; imageIndex++) {
+      const left = a.images.find((image) => image.id === first.imageIds[imageIndex])
+      const right = b.images.find((image) => image.id === second.imageIds[imageIndex])
+      if (!left || !right || left.filename !== right.filename || left.mimeType !== right.mimeType || left.blob.size !== right.blob.size) return false
+      const leftBytes = new Uint8Array(await left.blob.arrayBuffer())
+      const rightBytes = new Uint8Array(await right.blob.arrayBuffer())
+      if (leftBytes.some((byte, offset) => byte !== rightBytes[offset])) return false
     }
-    if (failures.length) error.value = `Some scripts stayed on this device. ${failures[0]}`
-    else error.value = ''
-  } finally {
-    moving.value = false
-    busy.value = ''
-    await refresh()
   }
+  return true
 }
 watch(() => accountUser.value?.id, () => {
   target.value = undefined
   error.value = ''
+  transferSuccess.value = ''
+  if (successTimer) clearTimeout(successTimer)
 })
-watch(() => accountUser.value?.id, refresh, { immediate: true })
+onUnmounted(() => {
+  if (successTimer) clearTimeout(successTimer)
+})
+watch(() => accountUser.value?.id, () => refresh(), { immediate: true })
 async function moveToAccount(project: Project) {
   if (!cloud.value || busy.value) return
   busy.value = 'Moving script to your account…'
-  error.value = ''
+  transferInProgress.value = project.id
+  transferError.value = undefined
+  transferSuccess.value = ''
+  if (successTimer) clearTimeout(successTimer)
   const destination = cloud.value
   try {
     const doc = await projects.load(project.id)
     if (!doc) throw new Error('This script could not be found in this browser.')
-    const { exportBackup, importBackup } = await import('../services/backup')
-    const copy = await importBackup(await exportBackup(doc))
-    await destination.save(copy)
-    if (!await destination.load(copy.project.id)) throw new Error('The account copy could not be verified.')
+    let alreadyInAccount = false
+    for (const candidate of (await destination.list()).filter((item) => item.title === doc.project.title)) {
+      const accountDoc = await destination.load(candidate.id)
+      if (accountDoc && await sameContent(doc, accountDoc)) {
+        alreadyInAccount = true
+        break
+      }
+    }
+    if (!alreadyInAccount) {
+      const copy = duplicateDocument(doc)
+      copy.project.title = doc.project.title
+      await destination.save(copy)
+      if (!sameDocument(copy, await destination.load(copy.project.id)))
+        throw new Error('The account copy could not be verified. Your script remains on this device.')
+    }
     const latest = await projects.load(project.id)
     if (!sameDocument(doc, latest)) throw new Error('This script changed during transfer. It remains on this device.')
     await projects.delete(project.id)
-    await refresh()
+    await refresh(false)
+    transferSuccess.value = `“${project.title}” was added to your account.`
+    successTimer = setTimeout(() => { transferSuccess.value = '' }, 5000)
   } catch (e) {
-    error.value = errorMessage(e)
+    transferError.value = { id: project.id, message: errorMessage(e) }
   } finally {
+    transferInProgress.value = ''
     busy.value = ''
   }
 }
@@ -340,7 +362,7 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
       </section>
       <section
         class="import-zone"
-        :class="{ dragging, 'is-busy': busy }"
+        :class="{ dragging, 'is-busy': importBusy }"
         aria-label="Import a script PDF"
         @dragover.prevent="dragging = true"
         @dragleave.prevent="dragging = false"
@@ -348,15 +370,15 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
       >
         <div class="import-symbol"><FileText :size="26" :stroke-width="1.4" /></div>
         <div class="import-copy">
-          <h2>{{ busy || 'Start with your script' }}</h2>
+          <h2>{{ importBusy || 'Start with your script' }}</h2>
           <p>
             {{
-              busy
+              importBusy
                 ? 'Your file is processed here in your browser.'
                 : 'Begin with an empty story, or drop a PDF here to turn its headings into sections.'
             }}
           </p>
-          <small v-if="!busy">PDFs need selectable text and can be up to 25 MB</small
+          <small v-if="!importBusy">PDFs need selectable text and can be up to 25 MB</small
           ><progress v-else :value="progress || undefined" max="100" aria-label="Import progress" />
         </div>
         <div class="start-actions">
@@ -377,14 +399,15 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
             <ArchiveRestore :size="17" /> Import backup
           </button>
         </div>
-        <p class="library-description">{{ accountUser ? 'Saved to your account and available on your devices.' : 'Saved in this browser. Sign in to bring your scripts to your account.' }}</p>
+        <p class="library-description">{{ accountUser ? 'Saved to your account and available on your devices.' : 'Saved in this browser. After signing in, choose which scripts to add to your account.' }}</p>
+        <p v-if="transferSuccess" class="transfer-success" role="status"><CircleCheck :size="18" /> {{ transferSuccess }}</p>
         <p v-if="loading" class="empty-projects">Loading your scripts…</p>
         <div v-else-if="!saved.length" class="empty-projects">
           <FolderOpen :size="28" :stroke-width="1.3" />
           <p>{{ accountUser ? 'No scripts in your account yet.' : 'Your stories will live here.' }}</p>
-          <small>{{ accountUser && localSaved.length ? 'Move a script from this device below, or start a new one.' : 'Start blank or import a script to begin.' }}</small>
+          <small>{{ accountUser && localSaved.length ? 'Add a script from this device below, or start a new one.' : 'Start blank or import a script to begin.' }}</small>
         </div>
-        <div v-else class="project-list">
+        <TransitionGroup v-else name="script-row" tag="div" class="project-list" appear>
           <div v-for="project in saved" :key="project.id" class="project-row">
             <RouterLink :to="projectUrl(project.id)" class="project-link"
               ><span class="project-icon"><FileText :size="21" :stroke-width="1.4" /></span
@@ -422,23 +445,31 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
               ><ArrowRight :size="18"
             /></RouterLink>
           </div>
-        </div>
+        </TransitionGroup>
+        <Transition name="device-section">
         <div v-if="accountUser && localSaved.length" class="device-projects">
           <div class="section-header"><h2>Only on this device <span class="count-badge">{{ localSaved.length }}</span></h2></div>
-          <p class="library-description">These scripts could not sync yet. They are safe on this device; retry when you are online.</p>
-          <div v-for="project in localSaved" :key="project.id" class="project-row">
+          <p class="library-description">These scripts are saved in this browser. Add each one to your account to use it on other devices.</p>
+          <TransitionGroup name="script-row" tag="div">
+          <div v-for="project in localSaved" :key="project.id" class="device-project-entry">
+          <div class="project-row">
             <RouterLink :to="projectUrl(project.id, 'local')" class="project-link">
               <span class="project-icon"><FileText :size="21" :stroke-width="1.4" /></span>
               <span class="project-info"><strong>{{ project.title }}</strong><small>{{ project.sourceFilename || 'Your script' }}</small></span>
               <span class="project-date">Edited {{ dateLabel(project.updatedAt) }}</span>
             </RouterLink>
-            <button class="text-button copy-account" :disabled="!!busy" @click="moveToAccount(project)"><CloudUpload :size="16" /> Retry sync</button>
+            <span class="device-warning" role="img" :aria-label="`${project.title} is only on this device, not your account`" tabindex="0"><TriangleAlert :size="17" /><span class="device-warning-tip">Only on this device. Add it to your account to use it elsewhere.</span></span>
+            <button class="text-button copy-account" :disabled="!!busy" @click="moveToAccount(project)"><CloudUpload :size="16" /> {{ transferInProgress === project.id ? 'Adding…' : 'Add to account' }}</button>
             <button class="icon-button" :aria-label="`Duplicate ${project.title}`" :disabled="!!busy" @click="manage(project, 'duplicate', 'local')"><Copy :size="16" /></button>
             <button class="icon-button" :aria-label="`Rename ${project.title}`" :disabled="!!busy" @click="manage(project, 'rename', 'local')"><Pencil :size="16" /></button>
             <button class="icon-button" :aria-label="`Delete ${project.title}`" :disabled="!!busy" @click="manage(project, 'delete', 'local')"><Trash2 :size="16" /></button>
             <RouterLink :to="projectUrl(project.id, 'local')" class="icon-button" :aria-label="`Open ${project.title}`"><ArrowRight :size="18" /></RouterLink>
           </div>
+          <p v-if="transferError?.id === project.id" class="transfer-error" role="alert"><TriangleAlert :size="17" /> <span>{{ transferError.message }} Your script is still on this device.</span></p>
+          </div>
+          </TransitionGroup>
         </div>
+        </Transition>
       </section>
       <footer class="home-footer">
         <HardDrive v-if="!accountUser" :size="15" /><CloudUpload v-else :size="15" />

@@ -69,7 +69,7 @@ async function leave() {
     <span v-if="error && !open" role="alert">{{ error }}</span>
     <Modal :open="open" title="Your scripts, on any device" @close="open = false">
       <p>
-        Sign in to access your scripts on any device. Your account includes your
+        Sign in to access scripts saved to your account on any device. Your account includes your
         writing, reference images, and reading pace.
       </p>
       <button
@@ -103,7 +103,7 @@ async function leave() {
         </div>
       </form>
       <p class="account-note">
-        Scripts already saved on this device join your account after you sign in.
+        Scripts saved on this device stay here when you sign in. Use “Add to account” for each script you want on your other devices.
         <RouterLink to="/privacy" @click="open = false">Privacy Policy</RouterLink>
       </p>
     </Modal>
