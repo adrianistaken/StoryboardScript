@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Open the localhost address printed in the terminal. A modern desktop browser is the primary target. Use **Explore an example** for an original sample, or **Import PDF** for your own script.
+Open the localhost address printed in the terminal. A modern desktop browser is the primary target. Use **Start blank** to write without a file, **Explore an example** for an original sample, or **Import PDF** for your own script.
 
 ```sh
 npm run build       # Type check and create dist/

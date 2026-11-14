@@ -387,6 +387,11 @@ input[type='range'] {
 .import-copy {
   flex: 1;
 }
+.start-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .import-copy h2 {
   font-size: 19px;
   font-weight: 600;
@@ -1562,9 +1567,12 @@ input[type='range'] {
   .import-copy p {
     font-size: 14px;
   }
-  .import-zone > .button {
+  .start-actions {
     width: 100%;
     margin-top: 6px;
+  }
+  .start-actions > .button {
+    flex: 1;
   }
   .saved-projects {
     margin-top: 30px;

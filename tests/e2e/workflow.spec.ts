@@ -28,6 +28,20 @@ const texts = (page: Page) =>
     .locator('.script-text')
     .evaluateAll((elements) => elements.map((e) => (e as HTMLTextAreaElement).value))
 
+test('start a blank story without a file and keep its edits', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Start blank' }).click()
+  await expect(page.getByRole('textbox', { name: 'Project title', exact: true })).toHaveValue('Untitled story')
+  expect(await titles(page)).toEqual(['Untitled section'])
+  expect(await texts(page)).toEqual([''])
+  await page.getByRole('textbox', { name: 'Section title', exact: true }).fill('Opening')
+  await page.getByRole('textbox', { name: 'Script for Opening', exact: true }).fill('A first line.')
+  await expect(page.locator('.save-status')).toHaveText('Saved locally')
+  await page.reload()
+  expect(await titles(page)).toEqual(['Opening'])
+  expect(await texts(page)).toEqual(['A first line.'])
+})
+
 test('import, edit, add, move, refresh, and delete a section', async ({ page }) => {
   const externalRequests: string[] = []
   page.on('request', (r) => {

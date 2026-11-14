@@ -214,6 +214,21 @@ async function example() {
     busy.value = ''
   }
 }
+async function startBlank() {
+  if (busy.value) return
+  const store = destination.value, source = destinationSource.value
+  busy.value = 'Creating your story…'
+  error.value = ''
+  try {
+    const doc = createDocument({ title: 'Untitled story', sourceFilename: '', sections: [{ title: 'Untitled section', text: '' }] })
+    await store.save(doc)
+    await router.push(projectUrl(doc.project.id, source))
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = ''
+  }
+}
 function manage(project: Project, mode: 'rename' | 'duplicate' | 'delete', source: 'local' | 'account') {
   target.value = project
   targetSource.value = source
@@ -338,15 +353,20 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
             {{
               busy
                 ? 'Your file is processed here in your browser.'
-                : 'Drop a PDF here. Each heading becomes a section.'
+                : 'Begin with an empty story, or drop a PDF here to turn its headings into sections.'
             }}
           </p>
-          <small v-if="!busy">Selectable-text PDFs, up to 25 MB</small
+          <small v-if="!busy">PDFs need selectable text and can be up to 25 MB</small
           ><progress v-else :value="progress || undefined" max="100" aria-label="Import progress" />
         </div>
-        <button class="button primary" :disabled="!!busy" @click="pdfPicker?.click()">
-          <Plus :size="18" /> Import PDF
-        </button>
+        <div class="start-actions">
+          <button class="button secondary" :disabled="!!busy" @click="startBlank">
+            <Plus :size="18" /> Start blank
+          </button>
+          <button class="button primary" :disabled="!!busy" @click="pdfPicker?.click()">
+            <FileText :size="18" /> Import PDF
+          </button>
+        </div>
       </section>
       <section class="saved-projects" aria-labelledby="saved-title">
         <div class="section-header">
@@ -362,7 +382,7 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
         <div v-else-if="!saved.length" class="empty-projects">
           <FolderOpen :size="28" :stroke-width="1.3" />
           <p>{{ accountUser ? 'No scripts in your account yet.' : 'Your stories will live here.' }}</p>
-          <small>{{ accountUser && localSaved.length ? 'Move a script from this device below, or import a new one.' : 'Import a script to start shaping it.' }}</small>
+          <small>{{ accountUser && localSaved.length ? 'Move a script from this device below, or start a new one.' : 'Start blank or import a script to begin.' }}</small>
         </div>
         <div v-else class="project-list">
           <div v-for="project in saved" :key="project.id" class="project-row">
