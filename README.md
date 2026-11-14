@@ -4,9 +4,10 @@ A workspace for seeing, editing, and rearranging video scripts. Import a selecta
 
 ## Run locally
 
-Use Node.js **24 LTS** (Node 22.12+ is also supported) and npm.
+Use Node.js **22.18.0** (the version in `.nvmrc`) and npm. Run `nvm use` before starting the server.
 
 ```sh
+nvm use
 npm ci
 npm run dev
 ```

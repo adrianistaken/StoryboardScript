@@ -106,3 +106,23 @@ test('Escape leaves section titles and narration ready for Space-drag without ch
   await expect(page.locator('.section-title').first()).toHaveValue('Keep this edit')
   await expect(page.locator('.script-text').first()).toHaveValue('Keep this edit')
 })
+
+test('typing in a long section preserves the board scroll position', async ({ page }) => {
+  await open(page)
+  await page.setViewportSize({ width: 900, height: 650 })
+  const text = page.locator('.script-text').first()
+  await text.fill(Array.from({ length: 80 }, (_, i) => `Line ${i + 1}`).join('\n'))
+  const board = page.locator('.board-scroll')
+  await text.evaluate((el) => {
+    const input = el as HTMLTextAreaElement
+    input.focus({ preventScroll: true })
+    const visibleLine = input.value.indexOf('Line 16')
+    input.setSelectionRange(visibleLine, visibleLine)
+  })
+  await board.evaluate((el) => {
+    el.scrollTop = 250
+  })
+  const before = await board.evaluate((el) => el.scrollTop)
+  await text.press('a')
+  expect(await board.evaluate((el) => el.scrollTop)).toBe(before)
+})

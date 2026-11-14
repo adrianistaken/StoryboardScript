@@ -10,16 +10,37 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const input = ref<HTMLTextAreaElement>()
 let observer: ResizeObserver | undefined
 let width = 0
+let pendingScroll: { board: HTMLElement; top: number; left: number } | undefined
+let scrollFrame = 0
+function rememberScroll() {
+  const board = input.value?.closest<HTMLElement>('.board-scroll')
+  pendingScroll = board ? { board, top: board.scrollTop, left: board.scrollLeft } : undefined
+}
+function restoreScroll() {
+  if (!pendingScroll) return
+  const { board, top, left } = pendingScroll
+  board.scrollTop = top
+  board.scrollLeft = left
+  cancelAnimationFrame(scrollFrame)
+  scrollFrame = requestAnimationFrame(() => {
+    board.scrollTop = top
+    board.scrollLeft = left
+    pendingScroll = undefined
+  })
+}
 function resize() {
   const el = input.value
   if (el) {
-    el.style.height = '0px'
+    // Let the content determine its natural height without collapsing the focused
+    // textarea (which makes the browser scroll the caret into view).
+    el.style.height = 'auto'
     el.style.height = `${Math.max(el.scrollHeight, 28)}px`
   }
 }
 function update(event: Event) {
   emit('update:modelValue', (event.target as HTMLTextAreaElement).value)
   resize()
+  restoreScroll()
 }
 watch(
   () => props.modelValue,
@@ -39,7 +60,10 @@ onMounted(() => {
   if (input.value) observer.observe(input.value)
   void document.fonts.ready.then(resize)
 })
-onBeforeUnmount(() => observer?.disconnect())
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  cancelAnimationFrame(scrollFrame)
+})
 defineExpose({ focus: () => input.value?.focus() })
 </script>
 <template>
@@ -51,6 +75,7 @@ defineExpose({ focus: () => input.value?.focus() })
     :maxlength="maxlength"
     :spellcheck="false"
     rows="1"
+    @beforeinput="rememberScroll"
     @input="update"
   />
 </template>
