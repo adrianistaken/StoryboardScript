@@ -15,28 +15,34 @@ import {
   TriangleAlert,
   CircleCheck,
 } from '@lucide/vue'
-import Brand from '../components/Brand.vue'
-import AccountMenu from '../components/AccountMenu.vue'
-import { accountUser, accountsEnabled } from '../services/auth'
+import { accountUser } from '../services/auth'
 import { cloudRepository } from '../services/cloud'
 import Modal from '../components/Modal.vue'
 import ImportReview from '../components/ImportReview.vue'
 import type { ImportDraft, Project } from '../types'
 import { projects } from '../services/storage'
+import { libraryCache } from '../services/libraryCache'
 import { createDocument, duplicateDocument, errorMessage, narrationTime, wordCount } from '../utils'
 import { createExample } from '../example'
 
+const props = withDefaults(defineProps<{ projectsOnly?: boolean }>(), { projectsOnly: false })
+
+const libraryKey = () => accountUser.value?.id ?? 'local'
 const router = useRouter()
 const cloud = computed(() => accountUser.value ? cloudRepository(accountUser.value.id) : undefined)
 const destination = computed(() => cloud.value ?? projects)
 const destinationSource = computed(() => cloud.value ? 'account' : 'local')
-const projectUrl = (id: string, source: 'local' | 'account' = destinationSource.value) =>
-  `/project/${id}${source === 'account' ? '?storage=account' : ''}`
+const projectUrl = (id: string, source: 'local' | 'account' = destinationSource.value) => {
+  const query = new URLSearchParams()
+  if (source === 'account') query.set('storage', 'account')
+  if (props.projectsOnly) query.set('from', 'projects')
+  return `/project/${id}${query.size ? `?${query}` : ''}`
+}
 let refreshVersion = 0
 let successTimer: ReturnType<typeof setTimeout> | undefined
-const saved = ref<Project[]>([]),
-  localSaved = ref<Project[]>([]),
-  loading = ref(true),
+const saved = ref<Project[]>(libraryCache.get(libraryKey())?.saved ?? []),
+  localSaved = ref<Project[]>(libraryCache.get(libraryKey())?.localSaved ?? []),
+  loading = ref(!libraryCache.has(libraryKey())),
   busy = ref(''),
   error = ref(''),
   transferError = ref<{ id: string; message: string }>(),
@@ -54,11 +60,11 @@ const target = ref<Project>(),
   renameTitle = ref('')
 async function refresh(showLoading = true) {
   const version = ++refreshVersion
-  if (showLoading) {
-    loading.value = true
-    saved.value = []
-    localSaved.value = []
-  }
+  const key = libraryKey()
+  const cached = libraryCache.get(key)
+  saved.value = cached?.saved ?? []
+  localSaved.value = cached?.localSaved ?? []
+  loading.value = showLoading && !cached
   try {
     const local = await projects.list()
     if (version !== refreshVersion) return
@@ -71,6 +77,7 @@ async function refresh(showLoading = true) {
       localSaved.value = []
       saved.value = local
     }
+    libraryCache.set(key, { saved: saved.value, localSaved: localSaved.value })
   } catch (e) {
     if (version === refreshVersion) error.value = errorMessage(e)
   } finally {
@@ -290,9 +297,6 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
 </script>
 <template>
   <div class="home-page">
-    <header class="home-header">
-      <Brand /><AccountMenu /><span v-if="!accountsEnabled" class="local-label"><HardDrive :size="15" /> Saved in this browser</span>
-    </header>
     <div v-if="error" class="error-banner" role="alert">
       <span>{{ error }}</span
       ><button class="text-button" @click="error = ''">Dismiss</button>
@@ -324,8 +328,8 @@ const previewWords = computed(() => previewSections.value.reduce((total, section
       @cancel="draft = undefined"
       @confirm="confirmImport"
     />
-    <main v-else id="main" class="home-main">
-      <section class="home-intro">
+    <main v-else id="main" class="home-main" :class="{ 'projects-page-main': projectsOnly }">
+      <section v-if="!projectsOnly" class="home-intro">
         <div class="intro-copy">
           <h1>See the shape<br />of your story.</h1>
           <p>

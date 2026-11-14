@@ -14,6 +14,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: HomeView },
+    { path: '/projects', component: HomeView, props: { projectsOnly: true } },
     { path: '/privacy', component: PrivacyView },
     { path: '/project/:id', component: WorkspaceView },
     { path: '/:pathMatch(.*)*', redirect: '/' },

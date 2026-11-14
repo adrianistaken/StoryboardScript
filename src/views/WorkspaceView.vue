@@ -39,6 +39,7 @@ import { validateImage } from '../services/media'
 
 const route = useRoute()
 const isCloud = route.query.storage === 'account'
+const returnPath = route.query.from === 'projects' ? '/projects' : '/'
 const projectStore = isCloud ? cloudRepository(accountUser.value?.id ?? '') : projects
 const {
   doc,
@@ -359,11 +360,11 @@ async function exportProject(kind: 'pdf' | 'backup') {
         'Projects are saved on the device and browser where you created them. You can restore a backup from Your scripts.'
       }}
     </p>
-    <RouterLink class="button primary" to="/">Back to your scripts</RouterLink>
+    <RouterLink class="button primary" :to="returnPath">Back to your scripts</RouterLink>
   </main>
   <div v-else class="workspace" @focusout="breakHistoryGroup" @beforeinput="historyInput">
     <header class="workspace-header">
-      <RouterLink :to="isCloud ? '/?storage=account' : '/?storage=local'" class="back-projects" aria-label="Back to your scripts"
+      <RouterLink :to="returnPath" class="back-projects" aria-label="Back to your scripts"
         ><ArrowLeft :size="20"
       /></RouterLink>
       <div class="workspace-title">
